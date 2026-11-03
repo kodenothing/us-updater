@@ -172,6 +172,11 @@ object FeatureRepo {
         val photoUrl = doc.getString("photoUrl")
             ?.takeIf { it.startsWith("https://firebasestorage.googleapis.com/") }
             .orEmpty()
+        val createdAt = doc.getLong("createdAt") ?: 0L
+        val legacyAlbumId = java.time.YearMonth.from(
+            java.time.Instant.ofEpochMilli(createdAt)
+                .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+        ).toString()
         return Memory(
             id = doc.id,
             caption = doc.getString("caption") ?: "",
@@ -181,10 +186,66 @@ object FeatureRepo {
             status = doc.getString("status") ?: "pending",
             storageMode = doc.getString("storageMode") ?: "legacy_storage",
             createdBy = doc.getString("createdBy") ?: "",
-            createdAt = doc.getLong("createdAt") ?: 0L,
+            createdAt = createdAt,
             favorite = doc.getBoolean("favorite") ?: false,
-            sizeBytes = doc.getLong("sizeBytes") ?: 0L
+            sizeBytes = doc.getLong("sizeBytes") ?: 0L,
+            albumId = doc.getString("albumId")?.takeIf { it.isNotBlank() } ?: legacyAlbumId
         )
+    }
+
+    fun observeMemoryAlbums(code: String): Flow<List<MemoryAlbum>> = callbackFlow {
+        val registration = couple(code).collection("memoryAlbums")
+            .addSnapshotListener { snapshot, _ ->
+                if (snapshot != null) trySend(snapshot.documents.map { doc ->
+                    MemoryAlbum(
+                        id = doc.id,
+                        name = doc.getString("name") ?: "Untitled album",
+                        createdBy = doc.getString("createdBy") ?: "",
+                        createdAt = doc.getLong("createdAt") ?: 0L,
+                        updatedAt = doc.getLong("updatedAt") ?: 0L
+                    )
+                })
+            }
+        awaitClose { registration.remove() }
+    }
+
+    fun createMemoryAlbum(code: String, albumId: String, name: String, uid: String): Task<Void> {
+        val now = System.currentTimeMillis()
+        return couple(code).collection("memoryAlbums").document(albumId).set(mapOf(
+            "name" to name.trim().take(48),
+            "createdBy" to uid,
+            "createdAt" to now,
+            "updatedBy" to uid,
+            "updatedAt" to now
+        ))
+    }
+
+    fun renameMemoryAlbum(code: String, albumId: String, name: String, uid: String): Task<Void> {
+        val ref = couple(code).collection("memoryAlbums").document(albumId)
+        val now = System.currentTimeMillis()
+        return ref.get().continueWithTask { result ->
+            if (!result.isSuccessful) throw result.exception ?: IllegalStateException("Couldn't check this album.")
+            if (result.result?.exists() == true) {
+                ref.update(mapOf("name" to name.trim().take(48), "updatedBy" to uid, "updatedAt" to now))
+            } else {
+                ref.set(mapOf(
+                    "name" to name.trim().take(48),
+                    "createdBy" to uid,
+                    "createdAt" to now,
+                    "updatedBy" to uid,
+                    "updatedAt" to now
+                ))
+            }
+        }
+    }
+
+    fun moveMemories(code: String, memoryIds: List<String>, albumId: String): Task<Void> {
+        require(memoryIds.size <= 450) { "Move at most 450 photos in one operation." }
+        val batch = db.batch()
+        memoryIds.distinct().forEach { id ->
+            batch.update(couple(code).collection("memories").document(id), "albumId", albumId)
+        }
+        return batch.commit()
     }
 
     fun observeMemoryAlbumCovers(code: String): Flow<Map<String, String>> = callbackFlow {
@@ -254,11 +315,13 @@ object FeatureRepo {
         uid: String,
         caption: String,
         fileName: String,
+        albumId: String,
         createdAt: Long
     ): Task<Void> = couple(code).collection("memories").document(id).set(
         mapOf(
             "caption" to caption.trim(),
             "fileName" to fileName,
+            "albumId" to albumId,
             "photoUrl" to "",
             "storagePath" to "",
             "storageMode" to "firestore_blob",
