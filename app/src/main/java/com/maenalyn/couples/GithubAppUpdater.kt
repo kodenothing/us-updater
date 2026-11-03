@@ -34,8 +34,8 @@ data class GithubUpdateCheck(
 
 object GithubAppUpdater {
     // Replace these two values with the owner and repository that publish your APK releases.
-    const val GITHUB_OWNER = "YOUR_GITHUB_USERNAME"
-    const val GITHUB_REPOSITORY = "YOUR_REPOSITORY"
+    const val GITHUB_OWNER = "kodenothing"
+    const val GITHUB_REPOSITORY = "us-updater"
 
     private const val APK_ASSET_NAME = "" // Leave blank to use the first APK attached to the release.
     private const val MAX_APK_BYTES = 250L * 1024L * 1024L

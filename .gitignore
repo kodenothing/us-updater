@@ -13,3 +13,13 @@ key.properties
 # Generated packages
 *.apk
 *.aab
+
+# Private signing credentials
+keystore.properties
+*.p12
+*.pfx
+
+# Dependencies and generated files
+node_modules/
+**/node_modules/
+.kotlin/
