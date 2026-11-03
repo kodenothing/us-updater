@@ -1,0 +1,20 @@
+rules_version = '2';
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /couples/{coupleId}/memories/{fileName} {
+      function isMember() {
+        return request.auth != null
+          && request.auth.uid in firestore.get(
+            /databases/(default)/documents/couples/$(coupleId)
+          ).data.members;
+      }
+
+      allow read: if isMember();
+      allow create, update: if isMember()
+        && fileName.matches('^[A-Za-z0-9_-]{1,60}\\.(jpg|jpeg|png|webp|gif)$')
+        && request.resource.size <= 10 * 1024 * 1024
+        && request.resource.contentType.matches('image/(jpeg|png|webp|gif)');
+      allow delete: if isMember();
+    }
+  }
+}

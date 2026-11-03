@@ -1,0 +1,29 @@
+{
+  "project_info": {
+    "project_number": "102401500813",
+    "project_id": "us-project-f6fc5",
+    "storage_bucket": "us-project-f6fc5.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:102401500813:android:c63c5f831d82a6e08ba4c4",
+        "android_client_info": {
+          "package_name": "com.maenalyn.couples"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyBX5ytCzlIU8Waz9f_88Xp_UGVTifyn-FY"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

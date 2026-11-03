@@ -1,0 +1,396 @@
+const fs = require('node:fs');
+const path = require('node:path');
+const test = require('node:test');
+const assert = require('node:assert/strict');
+const {
+  initializeTestEnvironment,
+  assertFails,
+  assertSucceeds
+} = require('@firebase/rules-unit-testing');
+const {
+  Bytes,
+  collection,
+  deleteDoc,
+  doc,
+  getDoc,
+  setDoc,
+  updateDoc,
+  serverTimestamp
+} = require('firebase/firestore');
+
+const PROJECT_ID = 'us-firestore-rules-tests';
+const COUPLE_ID = 'USCOUPLE12AB';
+const MEMBER_A = 'member-james';
+const MEMBER_B = 'member-mae';
+const OUTSIDER = 'not-a-member';
+let environment;
+
+const ref = (db, ...segments) => doc(db, ...segments);
+const couplePath = `couples/${COUPLE_ID}`;
+
+test.before(async () => {
+  const rules = fs.readFileSync(path.join(__dirname, '..', 'firestore.rules'), 'utf8');
+  environment = await initializeTestEnvironment({
+    projectId: PROJECT_ID,
+    firestore: { rules }
+  });
+});
+
+test.beforeEach(async () => {
+  await environment.clearFirestore();
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(ref(db, couplePath), {
+      members: [MEMBER_A, MEMBER_B],
+      createdAt: 1,
+      anniversary: 1,
+      coupleName: 'Us',
+      memberNames: { [MEMBER_A]: 'James', [MEMBER_B]: 'Mae' },
+      deleteApprovals: {}
+    });
+    await setDoc(ref(db, couplePath, 'daily', '2026-11-02'), {
+      dateKey: '2026-11-02',
+      question: 'What made you feel loved today?',
+      questionIndex: 0,
+      createdAt: 1
+    });
+  });
+});
+
+test.after(async () => {
+  if (environment) await environment.cleanup();
+});
+
+test('only the two paired members can read the couple document', async () => {
+  const memberDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const outsiderDb = environment.authenticatedContext(OUTSIDER).firestore();
+  await assertSucceeds(getDoc(ref(memberDb, couplePath)));
+  await assertFails(getDoc(ref(outsiderDb, couplePath)));
+});
+
+test('new shared spaces must begin as one-person pending invitations', async () => {
+  const db = environment.authenticatedContext(MEMBER_A).firestore();
+  const valid = ref(db, 'couples/NEWPENDINGINVITE');
+  const base = {
+    members: [MEMBER_A], createdAt: 1, anniversary: 1, coupleName: 'Us',
+    memberNames: { [MEMBER_A]: 'James' }, deleteApprovals: {}
+  };
+  await assertSucceeds(setDoc(valid, { ...base, inviteOnly: true }));
+  await assertFails(setDoc(ref(db, 'couples/MISSINGINVITEMARKER'), base));
+});
+
+test('a member can edit only their own nickname', async () => {
+  const db = environment.authenticatedContext(MEMBER_A).firestore();
+  const couple = ref(db, couplePath);
+  await assertSucceeds(updateDoc(couple, { [`memberNames.${MEMBER_A}`]: 'James J.' }));
+  await assertFails(updateDoc(couple, { [`memberNames.${MEMBER_B}`]: 'Impersonated' }));
+});
+
+test('a third account cannot join an already paired couple', async () => {
+  const db = environment.authenticatedContext(OUTSIDER).firestore();
+  await assertFails(updateDoc(ref(db, couplePath), {
+    members: [MEMBER_A, MEMBER_B, OUTSIDER]
+  }));
+});
+
+test('only the creator can cancel a pending invite, and a joined invite cannot be cancelled', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const pendingPath = 'couples/PENDINGINVITE01';
+  const joinedPath = 'couples/JOINEDINVITE001';
+
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(ref(db, pendingPath), {
+      members: [MEMBER_A], createdAt: 1, anniversary: 1, coupleName: 'Us',
+      memberNames: { [MEMBER_A]: 'James' }, deleteApprovals: {}, inviteOnly: true
+    });
+    await setDoc(ref(db, joinedPath), {
+      members: [MEMBER_A], createdAt: 2, anniversary: 1, coupleName: 'Us',
+      memberNames: { [MEMBER_A]: 'James' }, deleteApprovals: {}, inviteOnly: true
+    });
+  });
+
+  await assertFails(deleteDoc(ref(bDb, pendingPath)));
+  await assertSucceeds(deleteDoc(ref(aDb, pendingPath)));
+
+  await assertSucceeds(updateDoc(ref(bDb, joinedPath), {
+    members: [MEMBER_A, MEMBER_B],
+    [`memberNames.${MEMBER_B}`]: 'Mae',
+    inviteOnly: false,
+    deleteApprovals: {}
+  }));
+  await assertFails(deleteDoc(ref(aDb, joinedPath)));
+});
+
+test('daily answers stay private until the reader has submitted theirs', async () => {
+  const memberDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const partnerDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const memberAAnswer = ref(memberDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_A);
+  const memberBAnswerFromA = ref(memberDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_B);
+  await assertFails(getDoc(memberBAnswerFromA));
+  await assertSucceeds(setDoc(memberAAnswer, {
+    uid: MEMBER_A, answer: 'You made me laugh.', createdAt: 1, updatedAt: 1
+  }));
+  await assertSucceeds(setDoc(ref(partnerDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_B), {
+    uid: MEMBER_B, answer: 'You remembered my coffee.', createdAt: 2, updatedAt: 2
+  }));
+  await assertSucceeds(getDoc(memberBAnswerFromA));
+  await assertSucceeds(getDoc(ref(partnerDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_A)));
+});
+
+test('daily answers can be edited only by their owner without changing the original timestamp', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const ownAnswer = ref(aDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_A);
+  const partnerView = ref(bDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_A);
+  await assertSucceeds(setDoc(ownAnswer, {
+    uid: MEMBER_A, answer: 'A first answer.', createdAt: 100, updatedAt: 100
+  }));
+  await assertSucceeds(updateDoc(ownAnswer, { answer: 'An updated answer.', updatedAt: 200 }));
+  await assertFails(updateDoc(ownAnswer, { createdAt: 300, updatedAt: 300 }));
+  await assertFails(updateDoc(partnerView, { answer: 'Changed by the other person.', updatedAt: 400 }));
+});
+
+test('memory originals and thumbnails enforce separate byte limits', async () => {
+  const db = environment.authenticatedContext(MEMBER_A).firestore();
+  const memory = ref(db, couplePath, 'memories', 'memory-one');
+  await assertSucceeds(setDoc(memory, {
+    caption: 'A day together',
+    fileName: 'memory-one.jpg',
+    photoUrl: '',
+    storagePath: '',
+    storageMode: 'firestore_blob',
+    status: 'pending',
+    createdBy: MEMBER_A,
+    createdAt: 1,
+    favorite: false,
+    sizeBytes: 0,
+    thumbnailBytes: 0
+  }));
+  await assertSucceeds(setDoc(ref(db, couplePath, 'memories', 'memory-one', 'content', 'image'), {
+    image: Bytes.fromUint8Array(new Uint8Array(700 * 1024)),
+    contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 1
+  }));
+  await assertSucceeds(setDoc(ref(db, couplePath, 'memories', 'memory-one', 'content', 'thumbnail'), {
+    image: Bytes.fromUint8Array(new Uint8Array(80 * 1024)),
+    contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 1
+  }));
+
+  const secondMemory = ref(db, couplePath, 'memories', 'memory-two');
+  await assertSucceeds(setDoc(secondMemory, {
+    caption: 'Another day', fileName: 'memory-two.jpg', photoUrl: '', storagePath: '',
+    storageMode: 'firestore_blob', status: 'pending', createdBy: MEMBER_A,
+    createdAt: 2, favorite: false, sizeBytes: 0, thumbnailBytes: 0
+  }));
+  await assertFails(setDoc(ref(db, couplePath, 'memories', 'memory-two', 'content', 'thumbnail'), {
+    image: Bytes.fromUint8Array(new Uint8Array(81 * 1024)),
+    contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 2
+  }));
+});
+
+test('permanent deletion requires both partner approvals', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const aCouple = ref(aDb, couplePath);
+  const bCouple = ref(bDb, couplePath);
+  await assertFails(deleteDoc(aCouple));
+  await assertSucceeds(updateDoc(aCouple, { [`deleteApprovals.${MEMBER_A}`]: true }));
+  await assertFails(deleteDoc(aCouple));
+  await assertSucceeds(updateDoc(bCouple, { [`deleteApprovals.${MEMBER_B}`]: true }));
+  await assertSucceeds(deleteDoc(bCouple));
+});
+
+test('activity entries cannot be authored as the other member', async () => {
+  const db = environment.authenticatedContext(MEMBER_A).firestore();
+  const activity = collection(db, couplePath, 'activity');
+  await assertSucceeds(setDoc(doc(activity, 'valid-activity'), {
+    actorUid: MEMBER_A,
+    type: 'note_created',
+    title: 'Sent a love note',
+    summary: 'Thinking of you.',
+    targetCollection: 'notes',
+    targetId: 'note-1',
+    createdAt: 1
+  }));
+  await assertFails(setDoc(doc(activity, 'spoofed-activity'), {
+    actorUid: MEMBER_B,
+    type: 'note_created',
+    title: 'Sent a love note',
+    summary: 'Impersonation attempt.',
+    targetCollection: 'notes',
+    targetId: 'note-2',
+    createdAt: 2
+  }));
+});
+
+
+test('activity history is append-only except after both partners approve deletion', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const activity = ref(aDb, couplePath, 'activity', 'activity-one');
+  await assertSucceeds(setDoc(activity, {
+    actorUid: MEMBER_A, type: 'daily_answered', title: "Answered today's prompt",
+    summary: 'Submit your own answer to reveal both responses.', targetCollection: 'daily',
+    targetId: '2026-11-02', createdAt: 1
+  }));
+  await assertFails(updateDoc(activity, { title: 'Edited by a member' }));
+  await assertFails(deleteDoc(activity));
+  await assertSucceeds(updateDoc(ref(aDb, couplePath), { [`deleteApprovals.${MEMBER_A}`]: true }));
+  await assertFails(deleteDoc(activity));
+  await assertSucceeds(updateDoc(ref(bDb, couplePath), { [`deleteApprovals.${MEMBER_B}`]: true }));
+  await assertSucceeds(deleteDoc(activity));
+});
+
+test('daily prompt documents cannot be changed and require mutual approval for deletion', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const daily = ref(aDb, couplePath, 'daily', '2026-11-02');
+  await assertFails(updateDoc(daily, { question: 'A different prompt' }));
+  await assertFails(deleteDoc(daily));
+  await assertSucceeds(updateDoc(ref(aDb, couplePath), { [`deleteApprovals.${MEMBER_A}`]: true }));
+  await assertFails(deleteDoc(daily));
+  await assertSucceeds(updateDoc(ref(bDb, couplePath), { [`deleteApprovals.${MEMBER_B}`]: true }));
+  await assertSucceeds(deleteDoc(daily));
+});
+
+test('daily check-ins can only be written by their owner', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const own = ref(aDb, couplePath, 'daily', '2026-11-02', 'checkins', MEMBER_A);
+  await assertSucceeds(setDoc(own, { uid: MEMBER_A, mood: 'Loved', note: 'Thinking of you.', updatedAt: 1 }));
+  await assertFails(setDoc(ref(aDb, couplePath, 'daily', '2026-11-02', 'checkins', MEMBER_B), {
+    uid: MEMBER_B, mood: 'Happy', note: 'Impersonation attempt.', updatedAt: 2
+  }));
+  await assertSucceeds(getDoc(own));
+  await assertSucceeds(getDoc(ref(bDb, couplePath, 'daily', '2026-11-02', 'checkins', MEMBER_A)));
+});
+
+test('final deletion approval allows cleanup of both partners daily records', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const answerA = ref(aDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_A);
+  const answerB = ref(aDb, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_B);
+  const checkinA = ref(aDb, couplePath, 'daily', '2026-11-02', 'checkins', MEMBER_A);
+  const checkinB = ref(aDb, couplePath, 'daily', '2026-11-02', 'checkins', MEMBER_B);
+
+  await environment.withSecurityRulesDisabled(async (context) => {
+    const db = context.firestore();
+    await setDoc(ref(db, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_A), {
+      uid: MEMBER_A, answer: 'A', createdAt: 1, updatedAt: 1
+    });
+    await setDoc(ref(db, couplePath, 'daily', '2026-11-02', 'answers', MEMBER_B), {
+      uid: MEMBER_B, answer: 'B', createdAt: 1, updatedAt: 1
+    });
+    await setDoc(ref(db, couplePath, 'daily', '2026-11-02', 'checkins', MEMBER_A), {
+      uid: MEMBER_A, mood: 'Happy', note: '', updatedAt: 1
+    });
+    await setDoc(ref(db, couplePath, 'daily', '2026-11-02', 'checkins', MEMBER_B), {
+      uid: MEMBER_B, mood: 'Loved', note: '', updatedAt: 1
+    });
+  });
+
+  await assertFails(deleteDoc(answerB));
+  await assertFails(deleteDoc(checkinB));
+  await assertSucceeds(updateDoc(ref(aDb, couplePath), { [`deleteApprovals.${MEMBER_A}`]: true }));
+  await assertFails(deleteDoc(answerB));
+  await assertFails(deleteDoc(checkinB));
+  await assertSucceeds(updateDoc(ref(bDb, couplePath), { [`deleteApprovals.${MEMBER_B}`]: true }));
+  await assertSucceeds(deleteDoc(answerA));
+  await assertSucceeds(deleteDoc(answerB));
+  await assertSucceeds(deleteDoc(checkinA));
+  await assertSucceeds(deleteDoc(checkinB));
+});
+
+
+test('live location can only be shared and removed by its owner', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const outsiderDb = environment.authenticatedContext(OUTSIDER).firestore();
+  const aLocation = ref(aDb, couplePath, 'locations', MEMBER_A);
+  const bViewOfALocation = ref(bDb, couplePath, 'locations', MEMBER_A);
+
+  await assertSucceeds(setDoc(aLocation, {
+    uid: MEMBER_A,
+    latitude: 14.5995,
+    longitude: 120.9842,
+    accuracyMeters: 18.0,
+    updatedAt: serverTimestamp()
+  }));
+  await assertSucceeds(getDoc(bViewOfALocation));
+  await assertFails(getDoc(ref(outsiderDb, couplePath, 'locations', MEMBER_A)));
+  await assertFails(setDoc(ref(bDb, couplePath, 'locations', MEMBER_A), {
+    uid: MEMBER_A,
+    latitude: 0,
+    longitude: 0,
+    accuracyMeters: 5,
+    updatedAt: serverTimestamp()
+  }));
+  await assertFails(deleteDoc(bViewOfALocation));
+  await assertFails(setDoc(ref(aDb, couplePath, 'locations', MEMBER_A), {
+    uid: MEMBER_A,
+    latitude: 120,
+    longitude: 0,
+    accuracyMeters: 5,
+    updatedAt: serverTimestamp()
+  }));
+  await assertSucceeds(deleteDoc(aLocation));
+});
+
+
+test('shared places are available to couple members and validated', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const outsiderDb = environment.authenticatedContext(OUTSIDER).firestore();
+  const placeA = ref(aDb, couplePath, 'places', 'home');
+  const placeForB = ref(bDb, couplePath, 'places', 'home');
+  const placeForOutsider = ref(outsiderDb, couplePath, 'places', 'home');
+
+  await assertSucceeds(setDoc(placeA, {
+    name: 'Home', latitude: 14.5995, longitude: 120.9842,
+    radiusMeters: 150, createdBy: MEMBER_A, createdAt: 100
+  }));
+  await assertSucceeds(getDoc(placeForB));
+  await assertFails(getDoc(placeForOutsider));
+  await assertFails(setDoc(ref(aDb, couplePath, 'places', 'invalid-radius'), {
+    name: 'Too small', latitude: 14.5, longitude: 121.0,
+    radiusMeters: 20, createdBy: MEMBER_A, createdAt: 101
+  }));
+  await assertFails(setDoc(ref(bDb, couplePath, 'places', 'impersonated'), {
+    name: 'Fake', latitude: 14.5, longitude: 121.0,
+    radiusMeters: 150, createdBy: MEMBER_A, createdAt: 102
+  }));
+  await assertFails(setDoc(ref(outsiderDb, couplePath, 'places', 'outsider'), {
+    name: 'Outside', latitude: 14.5, longitude: 121.0,
+    radiusMeters: 150, createdBy: OUTSIDER, createdAt: 103
+  }));
+});
+
+test('place transition events require a real shared place and truthful actor', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  await environment.withSecurityRulesDisabled(async (context) => {
+    await setDoc(ref(context.firestore(), couplePath, 'places', 'school'), {
+      name: 'School', latitude: 14.5, longitude: 121.0,
+      radiusMeters: 300, createdBy: MEMBER_A, createdAt: 1
+    });
+  });
+  const eventA = ref(aDb, couplePath, 'placeEvents', 'event-a1');
+  await assertSucceeds(setDoc(eventA, {
+    eventKey: 'event-a1', actorUid: MEMBER_A, placeId: 'school',
+    placeName: 'School', transition: 'entered', createdAt: 200
+  }));
+  await assertSucceeds(getDoc(ref(bDb, couplePath, 'placeEvents', 'event-a1')));
+  await assertFails(setDoc(ref(bDb, couplePath, 'placeEvents', 'fake-actor'), {
+    eventKey: 'fake-actor', actorUid: MEMBER_A, placeId: 'school',
+    placeName: 'School', transition: 'left', createdAt: 201
+  }));
+  await assertFails(setDoc(ref(aDb, couplePath, 'placeEvents', 'missing-place'), {
+    eventKey: 'missing-place', actorUid: MEMBER_A, placeId: 'missing',
+    placeName: 'Nowhere', transition: 'entered', createdAt: 202
+  }));
+  await assertFails(setDoc(ref(aDb, couplePath, 'placeEvents', 'bad-transition'), {
+    eventKey: 'bad-transition', actorUid: MEMBER_A, placeId: 'school',
+    placeName: 'School', transition: 'visited', createdAt: 203
+  }));
+});

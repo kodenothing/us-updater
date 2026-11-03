@@ -1,0 +1,1185 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#d81b60">
+<title>Us — Web Tester</title>
+<style>
+  :root{color-scheme:light;--pink:#d81b60;--pink-dark:#ad1457;--pink-soft:#fff0f5;--border:#f1c6d6;--text:#29242a;--muted:#746b72;--danger:#b00020;--green:#18794e}
+  *{box-sizing:border-box}
+  body{font-family:system-ui,-apple-system,Segoe UI,sans-serif;max-width:620px;margin:0 auto;padding:18px;background:#fffafb;color:var(--text)}
+  h1{color:var(--pink);margin:.1em 0;font-size:1.8rem}
+  h2{font-size:1.08rem;margin:0 0 10px}
+  h3{font-size:1rem;margin:0 0 8px}
+  p{line-height:1.5}
+  section{background:#fff;border:1px solid var(--border);border-radius:14px;padding:15px;margin:13px 0;box-shadow:0 2px 10px #7b1b3a0a}
+  textarea,input{width:100%;box-sizing:border-box;padding:11px 12px;border:1px solid #d7cbd0;border-radius:9px;font:inherit;font-size:15px;background:#fff;color:var(--text);min-width:0}
+  textarea{height:145px;font-family:ui-monospace,SFMono-Regular,Consolas,monospace;font-size:12px;resize:vertical}
+  input:focus,textarea:focus{outline:2px solid #d81b6035;border-color:var(--pink)}
+  input[type=checkbox]{width:auto;accent-color:var(--pink)}
+  button{background:var(--pink);color:#fff;border:0;border-radius:9px;padding:10px 14px;font:inherit;font-size:14px;font-weight:650;margin:7px 7px 0 0;cursor:pointer}
+  button:hover{background:var(--pink-dark)}
+  button:disabled{opacity:.55;cursor:wait}
+  button.alt{background:#fff;color:var(--pink);border:1px solid var(--pink)}
+  button.alt:hover{background:var(--pink-soft)}
+  button.danger{background:var(--danger)}
+  .muted{color:var(--muted);font-size:13px}
+  .err{color:var(--danger)}
+  .success{color:var(--green)}
+  #msg{min-height:1.4em;font-weight:650;padding:4px 1px;overflow-wrap:anywhere}
+  .big{font-size:54px;font-weight:750;color:var(--pink);line-height:1.1}
+  .row{display:flex;gap:8px;align-items:center}
+  .row input{flex:1}
+  .row button{flex:none}
+  .field{margin:10px 0}
+  .field label{display:block;font-size:13px;font-weight:650;margin:0 0 5px}
+  .code{font-size:clamp(20px,6vw,28px);letter-spacing:3px;font-weight:800;overflow-wrap:anywhere;color:var(--pink-dark)}
+  .pill{display:inline-block;background:var(--pink-soft);color:var(--pink-dark);border-radius:999px;padding:4px 9px;font-size:12px;font-weight:700}
+  .status{background:#fff7fa;border:1px solid #f6d9e4;border-radius:9px;padding:10px;margin:9px 0;font-size:13px;overflow-wrap:anywhere}
+  ul{list-style:none;padding:0;margin:8px 0}
+  li{display:flex;align-items:center;gap:9px;padding:8px 0;border-bottom:1px solid #f5e3ea}
+  li span{flex:1;overflow-wrap:anywhere}
+  li.done span{text-decoration:line-through;color:#888}
+  li button{margin:0;padding:5px 9px;font-size:12px}
+  .item-label{font-size:12px;font-weight:700;color:var(--muted);margin-top:10px}
+  [hidden]{display:none!important}
+  @media(max-width:420px){body{padding:12px}.row{gap:6px}.row button{padding:10px}.code{letter-spacing:2px}}
+</style>
+</head>
+<body>
+<header>
+  <h1>Us 💗 — Partner Device Tester</h1>
+  <p class="muted">This browser acts as your partner's second device. Your Android phone is the primary device: create the invite there, then enter that code here.</p>
+</header>
+<div id="msg" role="status" aria-live="polite"></div>
+
+<section id="cfgBox">
+  <h2>1. Connect as the partner device</h2>
+  <p class="muted">Use the same Firebase project as your Android app. This tester creates its own separate anonymous Firebase identity. It does not sign in to, restore, or modify your Android account.</p>
+  <div class="field">
+    <label for="cfg">Firebase web config</label>
+    <textarea id="cfg" spellcheck="false" autocapitalize="off">const firebaseConfig = {
+  apiKey: "AIzaSyC9pyC7Zh9Mx-jpUjrv5t8WYm9wcwbKOIw",
+  authDomain: "us-project-f6fc5.firebaseapp.com",
+  projectId: "us-project-f6fc5",
+  messagingSenderId: "102401500813",
+  appId: "1:102401500813:web:d78e38cdd13e51388ba4c4"
+};</textarea>
+  </div>
+  <div class="field">
+    <label for="appCheckSiteKey">App Check reCAPTCHA Enterprise site key (optional)</label>
+    <input id="appCheckSiteKey" type="text" autocomplete="off" placeholder="Leave empty until Web App Check is registered">
+    <p class="muted">Only needed when Cloud Firestore App Check enforcement is enabled and this tester uses a registered Firebase Web App.</p>
+  </div>
+  <button id="connect">Connect partner device</button>
+  <p class="muted">The browser keeps this partner identity between visits. Use a separate browser profile or another device for another tester identity.</p>
+</section>
+
+<section id="pair" hidden>
+  <h2>2. Join your Android phone</h2>
+  <div class="status"><strong>Partner device mode</strong><br>Your Android app is the owner/primary device. Do not generate a code here. Enter the invite code displayed by the Android app.</div>
+  <div class="row">
+    <input id="codeIn" type="text" placeholder="Code from the Android app" maxlength="12" autocapitalize="characters" autocomplete="off" spellcheck="false">
+    <button id="join">Join</button>
+  </div>
+  <p class="muted">New 12-character codes and existing 8-character codes are accepted. A couple can have only two members.</p>
+</section>
+
+<section id="home" hidden>
+  <h2><span class="pill">Partner device connected</span></h2>
+  <div class="status" id="partnerIdentity">Separate anonymous tester account.</div>
+  <div>Joined invite code: <span class="code" id="codeOut"></span></div>
+  <div class="muted" style="margin-top:7px">Members: <span id="members">2 / 2</span> (primary Android + this partner device)</div>
+  <p class="muted">This tester cannot create a couple or delete/unpair the shared space. Use the primary Android app for owner-side pairing and destructive account actions.</p>
+  <div class="field"><label for="myNickname">Your nickname</label><div class="row"><input id="myNickname" maxlength="24" placeholder="Your name"><button id="nicknameSave" class="alt">Save nickname</button></div><p class="muted">This is your personal name. It appears in notifications on your partner's phone.</p><div class="muted" id="partnerNickname">Partner nickname: not set yet.</div></div>
+  <div class="field"><label for="sharedName">Our shared space name</label><div class="row"><input id="sharedName" maxlength="32" placeholder="Us 💜"><button id="nameSave" class="alt">Save name</button></div><p class="muted">Optional title for the shared space. It is separate from both personal nicknames.</p></div>
+</section>
+
+<section id="together" hidden>
+  <h2>Days together</h2>
+  <div id="counter" class="muted">No anniversary set yet.</div>
+  <div class="row" style="margin-top:10px">
+    <input id="annIn" type="date" aria-label="Anniversary date">
+    <button id="annSet">Save</button>
+  </div>
+</section>
+
+<section id="todoBox" hidden>
+  <h2>To-do</h2>
+  <div class="row"><input id="todoIn" type="text" placeholder="Add a to-do..." maxlength="500"><button data-add="todo">Add</button></div>
+  <ul id="todoList"></ul>
+</section>
+
+<section id="bucketBox" hidden>
+  <h2>Bucket list</h2>
+  <div class="row"><input id="bucketIn" type="text" placeholder="Add to the bucket list..." maxlength="500"><button data-add="bucket">Add</button></div>
+  <ul id="bucketList"></ul>
+</section>
+
+<section id="calendarBox" hidden>
+  <h2>Our calendar</h2>
+  <p class="muted">Add a shared event. Android devices schedule local reminders.</p>
+  <div class="field"><label for="eventTitle">Title</label><input id="eventTitle" maxlength="80" placeholder="Date night"></div>
+  <div class="field"><label for="eventDescription">Details</label><input id="eventDescription" maxlength="500" placeholder="Dinner at our favorite place"></div>
+  <div class="field"><label for="eventDate">Date</label><input id="eventDate" type="date"></div>
+  <div class="field"><label><input id="eventAllDay" type="checkbox" checked> All-day plan</label></div>
+  <div class="row">
+    <div class="field" style="flex:1"><label for="eventStart">Start time</label><input id="eventStart" type="time" value="18:00" disabled></div>
+    <div class="field" style="flex:1"><label for="eventEnd">End time</label><input id="eventEnd" type="time" disabled></div>
+  </div>
+  <div class="field"><label for="eventReminder">Reminder</label>
+    <select id="eventReminder"><option value="0">No reminder</option><option value="10">10 minutes before</option><option value="60">1 hour before</option><option value="1440">1 day before</option></select>
+  </div>
+  <button id="eventAdd">Add plan</button>
+  <div id="eventList"></div>
+</section>
+
+<section id="notesBox" hidden>
+  <h2>Love notes</h2>
+  <div class="field"><label for="noteTitle">Title (optional)</label><input id="noteTitle" maxlength="80" placeholder="A little reminder"></div>
+  <div class="field"><label for="noteText">Your note</label><textarea id="noteText" maxlength="2000" style="height:95px" placeholder="Something I want you to know..."></textarea></div>
+  <button id="noteAdd">Save note</button>
+  <div id="noteList"></div>
+</section>
+
+<section id="memoriesBox" hidden>
+  <h2>Our memories</h2>
+  <div class="field"><label for="memoryFile">Photo</label><input id="memoryFile" type="file" accept="image/jpeg,image/png,image/webp"></div>
+  <div class="field"><label for="memoryCaption">Caption</label><input id="memoryCaption" maxlength="280" placeholder="A day I want to remember"></div>
+  <button id="memoryAdd">Upload memory</button>
+  <div class="row">
+    <input id="memorySearch" type="search" maxlength="80" placeholder="Search captions" aria-label="Search memory captions">
+    <label class="muted" style="white-space:nowrap"><input id="memoryFavoritesOnly" type="checkbox" style="width:auto"> Favorites</label>
+  </div>
+  <div id="memoryUsage" class="muted"></div>
+  <div id="memoryList"></div>
+  <button id="memoryLoadOlder" class="alt" hidden>Load older memories</button>
+</section>
+
+<section id="dailyBox" hidden>
+  <h2>Daily Us</h2>
+  <p class="muted" id="dailyDate"></p>
+  <div class="status"><strong>Today's prompt</strong><p id="dailyQuestion" style="margin:7px 0 0">Loading today's question…</p></div>
+  <div class="field"><label for="dailyAnswer">Your answer</label><textarea id="dailyAnswer" maxlength="1000" style="height:120px;font-family:inherit;font-size:14px" placeholder="Write something from your heart…"></textarea><div class="muted" id="dailyAnswerState"></div></div>
+  <button id="dailyAnswerSave">Save answer</button>
+  <div class="status"><strong>Your person's answer</strong><p id="dailyPartnerAnswer" style="white-space:pre-wrap;margin-bottom:0">Submit your answer first. Then you can read each other's responses.</p></div>
+  <h3>Daily check-in</h3>
+  <div class="field"><label for="dailyMood">How are you feeling?</label><select id="dailyMood"><option>Happy</option><option selected>Loved</option><option>Calm</option><option>Tired</option><option>Stressed</option><option>Low</option></select></div>
+  <div class="field"><label for="dailyCheckinNote">Anything your person should know? (optional)</label><input id="dailyCheckinNote" maxlength="240" placeholder="A little note for your person"></div>
+  <button id="dailyCheckinSave">Save check-in</button>
+  <div class="status"><strong>Your person's check-in</strong><p id="dailyPartnerCheckin" style="white-space:pre-wrap;margin-bottom:0">Their check-in will appear here when they share it.</p></div>
+</section>
+
+<section id="activityBox" hidden>
+  <h2>Activity Center</h2>
+  <p class="muted">A shared timeline of updates from both partners.</p>
+  <div class="field"><label for="activityFilter">Show</label><select id="activityFilter"><option>All</option><option>Lists</option><option>Plans</option><option>Notes</option><option>Memories</option><option>Daily Us</option></select></div>
+  <div id="activityList"></div>
+</section>
+
+<script type="module">
+import { initializeApp, getApps } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app.js";
+import { initializeAppCheck, ReCaptchaEnterpriseProvider } from "https://www.gstatic.com/firebasejs/13.1.0/firebase-app-check.js";
+import {
+  getAuth, onAuthStateChanged, signInAnonymously, signOut,
+  setPersistence, browserLocalPersistence
+} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-auth.js";
+import {
+  getFirestore, Bytes, doc, getDoc, setDoc, updateDoc, deleteDoc, onSnapshot,
+  collection, addDoc, query, orderBy, getDocs, runTransaction, where, limit,
+  writeBatch, startAfter
+} from "https://www.gstatic.com/firebasejs/13.1.0/firebase-firestore.js";
+
+const $ = id => document.getElementById(id);
+const ALPHA = "ABCDEFGHJKMNPQRSTUVWXYZ23456789";
+const NEW_CODE_LENGTH = 12;
+const PARTNER_APP_NAME = "us-partner-device";
+const PARTNER_CODE_KEY = "us-partner-device-couple-code";
+let app, auth, db, appCheck = null, currentUser = null, code = null;
+let unsubs = [], dailyUnsubs = [], items = [], events = [], notes = [], memories = [], activityEntries = [];
+let dailyPartnerUid = null, dailyMine = null, dailyPartnerAnswer = null, dailyMyCheckin = null, dailyPartnerCheckin = null, dailyQuestion = "";
+let dailyWatcherPartner = undefined;
+let memoryCursor = null, memoryHasMore = false;
+let memoryPagingStarted = false, memoryReachedEnd = false;
+let memberNames = {};
+const memoryObjectUrls = new Map();
+const memoryLoads = new Set();
+let busy = false;
+
+
+try {
+  const savedConfig = localStorage.getItem("us-firebase-config");
+  if (savedConfig) $("cfg").value = savedConfig;
+  const savedSiteKey = localStorage.getItem("us-app-check-site-key");
+  if (savedSiteKey) $("appCheckSiteKey").value = savedSiteKey;
+} catch (_) {}
+
+const show = (ids, visible) => ids.forEach(id => { $(id).hidden = !visible; });
+const log = (message = "", kind = "") => {
+  $("msg").textContent = message;
+  $("msg").className = kind;
+};
+const setBusy = value => {
+  busy = value;
+  ["connect", "join", "annSet", "nameSave", "eventAdd", "noteAdd", "memoryAdd"].forEach(id => {
+    const element = $(id);
+    if (element) element.disabled = value;
+  });
+};
+const coupleRef = id => doc(db, "couples", id);
+const friendlyError = error => {
+  const code = error?.code || "";
+  if (code === "permission-denied" || code === "firestore/permission-denied")
+    return "Permission denied. The invite may be invalid/full, or the published Firestore rules do not match this tester.";
+  if (code.includes("too-many-requests")) return "Too many attempts. Please try again later.";
+  if (code.includes("operation-not-allowed")) return "Enable Anonymous sign-in in Firebase Authentication.";
+  if (code.includes("network-request-failed")) return "Network error. Check your internet connection.";
+  if (code === "unavailable" || code.includes("unavailable")) return "Firebase is temporarily unavailable. Check your connection and try again.";
+  return error?.message ? `Failed: ${error.message}` : "Something went wrong. Please try again.";
+};
+
+function parseFirebaseConfig(source) {
+  const config = {};
+  for (const match of source.matchAll(/(apiKey|authDomain|projectId|messagingSenderId|appId|measurementId)\s*:\s*["']([^"']*)["']/g)) {
+    config[match[1]] = match[2];
+  }
+  if (!config.apiKey || !config.projectId || !config.appId || !config.authDomain)
+    throw new Error("Config must include apiKey, authDomain, projectId, and appId.");
+  return config;
+}
+
+async function connect() {
+  if (busy) return;
+  setBusy(true);
+  log("Connecting as a separate partner device…");
+  try {
+    const configText = $("cfg").value;
+    const config = parseFirebaseConfig(configText);
+    try { localStorage.setItem("us-firebase-config", configText); } catch (_) {}
+
+    // Use a named Firebase app so this tester never reuses the old default-app
+    // auth session from a previous version of the tester.
+    const existingApp = getApps().find(candidate => candidate.name === PARTNER_APP_NAME);
+    app = existingApp || initializeApp(config, PARTNER_APP_NAME);
+    if (app.options.projectId !== config.projectId) {
+      throw new Error("This browser already has a partner tester session for a different Firebase project. Clear this site's data before switching projects.");
+    }
+
+    const appCheckSiteKey = $("appCheckSiteKey").value.trim();
+    try { localStorage.setItem("us-app-check-site-key", appCheckSiteKey); } catch (_) {}
+    if (appCheckSiteKey && !appCheck) {
+      appCheck = initializeAppCheck(app, {
+        provider: new ReCaptchaEnterpriseProvider(appCheckSiteKey),
+        isTokenAutoRefreshEnabled: true
+      });
+    }
+    auth = getAuth(app);
+    await setPersistence(auth, browserLocalPersistence);
+    const firstUser = await new Promise((resolve, reject) => {
+      let unsubscribe = () => {};
+      unsubscribe = onAuthStateChanged(auth, user => {
+        unsubscribe();
+        resolve(user);
+      }, error => {
+        unsubscribe();
+        reject(error);
+      });
+    });
+
+    // The tester must never run as a linked/owner account. Keep an existing
+    // anonymous tester identity so the same browser remains the same device.
+    if (firstUser && !firstUser.isAnonymous) await signOut(auth);
+    currentUser = auth.currentUser;
+    if (!currentUser || !currentUser.isAnonymous) {
+      const credential = await signInAnonymously(auth);
+      currentUser = credential.user;
+    }
+
+    db = getFirestore(app);
+    show(["cfgBox"], false);
+    show(["pair"], true);
+    $("partnerIdentity").textContent = `Separate partner-device identity: ${currentUser.uid}. This is not your Android app sign-in.`;
+
+    const savedCode = (() => {
+      try { return localStorage.getItem(PARTNER_CODE_KEY); } catch (_) { return null; }
+    })();
+    if (savedCode) {
+      try {
+        const snapshot = await getDoc(coupleRef(savedCode));
+        const members = snapshot.exists() ? snapshot.data().members : [];
+        if (Array.isArray(members) && members.includes(currentUser.uid)) {
+          enter(savedCode);
+          log("Partner device reconnected to its existing shared space.", "success");
+          return;
+        }
+        try { localStorage.removeItem(PARTNER_CODE_KEY); } catch (_) {}
+      } catch (error) {
+        log(friendlyError(error), "err");
+      }
+    }
+
+    // Recover this browser's existing partner membership even if only its
+    // local couple-code setting was cleared.
+    try {
+      const restoredCode = await findCoupleForUid(currentUser.uid);
+      if (restoredCode) {
+        enter(restoredCode);
+        log("This partner device was already paired. Shared data restored.", "success");
+        return;
+      }
+    } catch (error) {
+      log(`Connected, but could not check previous pairing: ${friendlyError(error)}`, "err");
+    }
+    log(`Partner device ready (${currentUser.uid.slice(0, 8)}…). Enter the invite code from your Android phone.`, "success");
+  } catch (error) {
+    log(`Connect failed: ${friendlyError(error)}`, "err");
+  } finally {
+    setBusy(false);
+  }
+}
+
+function ensurePartnerIdentity() {
+  if (!currentUser || !currentUser.isAnonymous) {
+    throw new Error("Partner device is not connected. Tap Connect partner device first.");
+  }
+  return currentUser;
+}
+
+async function findCoupleForUid(uid) {
+  const result = await getDocs(query(
+    collection(db, "couples"),
+    where("members", "array-contains", uid),
+    limit(2)
+  ));
+  if (result.empty) return null;
+  if (result.size > 1) throw new Error("This account is linked to more than one couple. Please review the Firestore data.");
+  return result.docs[0].id;
+}
+
+async function joinCode() {
+  if (busy) return;
+  setBusy(true);
+  try {
+    const user = ensurePartnerIdentity();
+    const clean = $("codeIn").value.toUpperCase().replace(/[^A-Z0-9]/g, "").split("").filter(ch => ALPHA.includes(ch)).join("");
+    if (clean.length !== 8 && clean.length !== NEW_CODE_LENGTH)
+      throw new Error("Enter a valid 8- or 12-character invite code.");
+
+    const result = await runTransaction(db, async transaction => {
+      const ref = coupleRef(clean);
+      const snapshot = await transaction.get(ref);
+      if (!snapshot.exists()) return "missing";
+      const members = snapshot.data().members;
+      if (!Array.isArray(members)) return "invalid";
+      if (members.includes(user.uid)) return "self";
+      if (members.length >= 2) return "full";
+      if (members.length !== 1) return "invalid";
+      const memberNames = { ...(snapshot.data().memberNames || {}) };
+      if (!memberNames[user.uid]) memberNames[user.uid] = "Partner";
+      transaction.update(ref, { members: [...members, user.uid], memberNames, deleteApprovals: {}, inviteOnly: false });
+      return "joined";
+    });
+
+    if (result === "self") throw new Error("This partner browser is already a member of that couple. Reconnect or refresh the page instead of joining again.");
+    if (result === "full") throw new Error("That couple already has two members. Make sure the code came from the primary Android app and this browser is a separate partner device.");
+    if (result !== "joined") throw new Error("That invite code isn't valid.");
+    enter(clean);
+    log("Successfully paired. Shared data is now synchronized with the Android app.", "success");
+  } catch (error) {
+    log(friendlyError(error), "err");
+  } finally {
+    setBusy(false);
+  }
+}
+
+function stopListeners() {
+  unsubs.forEach(unsubscribe => unsubscribe());
+  unsubs = [];
+  dailyUnsubs.forEach(unsubscribe => unsubscribe());
+  dailyUnsubs = [];
+  dailyWatcherPartner = undefined;
+}
+
+function enter(c) {
+  stopListeners();
+  memoryObjectUrls.forEach(url => URL.revokeObjectURL(url));
+  memoryObjectUrls.clear();
+  memoryLoads.clear();
+  code = c;
+  items = []; events = []; notes = []; memories = []; activityEntries = [];
+  dailyPartnerUid = null; dailyMine = null; dailyPartnerAnswer = null; dailyMyCheckin = null; dailyPartnerCheckin = null; dailyQuestion = "";
+  memoryCursor = null; memoryHasMore = false; memoryPagingStarted = false; memoryReachedEnd = false;
+  try { localStorage.setItem(PARTNER_CODE_KEY, c); } catch (_) {}
+  $("codeOut").textContent = c;
+  show(["cfgBox", "pair"], false);
+  show(["home", "together", "todoBox", "bucketBox", "calendarBox", "notesBox", "memoriesBox", "dailyBox", "activityBox"], true);
+  $("partnerIdentity").textContent = `Separate partner-device identity: ${currentUser.uid}. This browser is the second member, not the primary Android account.`;
+  if (!$('eventDate').value) {
+    const today = new Date();
+    $('eventDate').value = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+  }
+
+  unsubs.push(onSnapshot(coupleRef(c), snapshot => {
+    if (!snapshot.exists()) {
+      if (!snapshot.metadata.fromCache) leave("This couple was unpaired or deleted.");
+      return;
+    }
+    const data = snapshot.data();
+    if (!Array.isArray(data.members) || !data.members.includes(currentUser?.uid)) {
+      leave("This account is no longer a member of this couple.");
+      return;
+    }
+    $("members").textContent = `${data.members.length} / 2`;
+    const sharedName = data.coupleName || "Us 💜";
+    document.title = `${sharedName} — Partner Device Tester`;
+    if (document.activeElement !== $("sharedName")) $("sharedName").value = sharedName;
+    const names = data.memberNames || {};
+    memberNames = names;
+    if (document.activeElement !== $("myNickname")) $("myNickname").value = names[currentUser.uid] || "Partner";
+    const otherUid = data.members.find(uid => uid !== currentUser.uid) || null;
+    $("partnerNickname").textContent = `Your partner's nickname: ${otherUid ? (names[otherUid] || "not set yet") : "not paired"}`;
+    renderCounter(data.anniversary);
+    if (dailyWatcherPartner !== otherUid) {
+      dailyWatcherPartner = otherUid;
+      watchDailyUs().catch(error => log(friendlyError(error), "err"));
+    }
+  }, error => {
+    if (error.code === "permission-denied") leave("Access to this couple was revoked. Check the pairing and Firestore rules.");
+    else log(friendlyError(error), "err");
+  }));
+
+  unsubs.push(onSnapshot(query(collection(db, "couples", c, "items"), orderBy("createdAt")), snapshot => {
+    items = snapshot.docs.map(itemDoc => ({ id: itemDoc.id, ...itemDoc.data() }));
+    renderItems();
+  }, error => log(friendlyError(error), "err")));
+  unsubs.push(onSnapshot(query(collection(db, "couples", c, "events"), orderBy("dateEpochDay")), snapshot => {
+    events = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    renderEvents();
+  }, error => log(friendlyError(error), "err")));
+  unsubs.push(onSnapshot(query(collection(db, "couples", c, "notes"), orderBy("createdAt", "desc")), snapshot => {
+    notes = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    renderNotes();
+  }, error => log(friendlyError(error), "err")));
+  unsubs.push(onSnapshot(query(collection(db, "couples", c, "activity"), orderBy("createdAt", "desc"), limit(120)), snapshot => {
+    activityEntries = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    renderActivity();
+  }, error => log(friendlyError(error), "err")));
+  unsubs.push(onSnapshot(query(collection(db, "couples", c, "memories"), orderBy("createdAt", "desc"), limit(36)), snapshot => {
+    const latest = snapshot.docs.map(item => ({ id: item.id, ...item.data() }));
+    const latestIds = new Set(latest.map(item => item.id));
+    memories = [...latest, ...memories.filter(item => !latestIds.has(item.id))];
+    if (!memoryPagingStarted) memoryCursor = snapshot.docs.at(-1) || null;
+    if (!memoryPagingStarted) memoryReachedEnd = snapshot.size < 36;
+    memoryHasMore = !memoryReachedEnd;
+    renderMemories();
+  }, error => log(friendlyError(error), "err")));
+}
+
+const DAILY_PROMPTS = [
+  "What made you feel loved today?",
+  "What is one little thing you appreciate about us?",
+  "What moment with me would you happily relive?",
+  "What is something I did recently that made you smile?",
+  "What is one thing you want us to try together?",
+  "When do you feel closest to me?",
+  "What is one small way I can make tomorrow better for you?",
+  "What are you looking forward to doing together?",
+  "What is a memory of us that always makes you smile?",
+  "What do you think we do really well as a team?",
+  "What song reminds you of us, and why?",
+  "What is one thing you would like more of in our relationship?",
+  "What ordinary moment with me feels special to you?",
+  "What is something new you learned about me?",
+  "What is one dream you want us to work toward?",
+  "What makes you feel safe and understood?",
+  "What is your favorite way for us to spend a quiet day?",
+  "What is one thing you are proud of us for?",
+  "What little tradition should we start together?",
+  "What is one thing you want to thank me for?",
+  "What adventure would you choose for our next date?",
+  "What do you love about the way we communicate?",
+  "What is one thing you hope never changes about us?",
+  "What helps you feel supported when life is stressful?",
+  "What is one detail about me you find lovely?",
+  "What would your perfect evening together look like?",
+  "What is one goal we could accomplish as a team?",
+  "When did you last feel especially proud of me?",
+  "What is something you want us to celebrate soon?",
+  "What is one thing we should make time for this week?",
+  "What is your favorite photo of us, and what happened that day?",
+  "What is one way we have grown together?",
+  "What is something you would love to teach me?",
+  "What makes a difficult day easier when we face it together?",
+  "What is one thing you admire about how I handle life?",
+  "What is a place you want to visit with me?",
+  "What is one thing you want to remember about this season of life?",
+  "What does feeling cared for look like to you?",
+  "What is one simple date we can plan soon?",
+  "What is one promise we can make to each other this week?"
+];
+
+function localDateKey(date = new Date()) {
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+}
+
+function stopDailyWatch() {
+  dailyUnsubs.forEach(unsubscribe => unsubscribe());
+  dailyUnsubs = [];
+}
+
+async function watchDailyUs() {
+  stopDailyWatch();
+  if (!code || !currentUser) return;
+  const c = code;
+  const dateKey = localDateKey();
+  const partnerUid = dailyWatcherPartner;
+  dailyPartnerUid = partnerUid;
+  dailyMine = null; dailyPartnerAnswer = null;
+  dailyMyCheckin = null; dailyPartnerCheckin = null;
+  dailyQuestion = "";
+  const dayRef = doc(db, "couples", c, "daily", dateKey);
+  const epochDay = epochDayFromInput(dateKey);
+  const questionIndex = ((epochDay % DAILY_PROMPTS.length) + DAILY_PROMPTS.length) % DAILY_PROMPTS.length;
+  const question = DAILY_PROMPTS[questionIndex];
+
+  await runTransaction(db, async transaction => {
+    const snapshot = await transaction.get(dayRef);
+    if (!snapshot.exists()) {
+      transaction.set(dayRef, {
+        dateKey, question, questionIndex, createdAt: Date.now()
+      });
+    }
+  });
+
+  $("dailyDate").textContent = new Date(`${dateKey}T00:00:00`).toLocaleDateString(undefined, {
+    weekday: "long", year: "numeric", month: "long", day: "numeric"
+  });
+  $("dailyAnswer").value = "";
+  $("dailyAnswerState").textContent = "You can edit your answer later. Your person's answer stays hidden until you submit yours.";
+  $("dailyPartnerAnswer").textContent = "Submit your answer first. Then you can read each other's responses.";
+  $("dailyPartnerCheckin").textContent = "Their check-in will appear here when they share it.";
+
+  dailyUnsubs.push(onSnapshot(dayRef, snapshot => {
+    dailyQuestion = snapshot.exists() ? (snapshot.data().question || question) : question;
+    $("dailyQuestion").textContent = dailyQuestion;
+  }, error => log(friendlyError(error), "err")));
+
+  const ownAnswerRef = doc(dayRef, "answers", currentUser.uid);
+  let partnerAnswerStop = null;
+  dailyUnsubs.push(onSnapshot(ownAnswerRef, { includeMetadataChanges: true }, snapshot => {
+    dailyMine = snapshot.exists() ? snapshot.data() : null;
+    if (document.activeElement !== $("dailyAnswer")) $("dailyAnswer").value = dailyMine?.answer || "";
+    $("dailyAnswerState").textContent = dailyMine ? "Your answer is saved. You can edit it any time." : "Your answer is private until you submit it.";
+    $("dailyAnswerSave").textContent = dailyMine ? "Update answer" : "Save answer";
+    if (dailyMine && !snapshot.metadata.hasPendingWrites && partnerUid && !partnerAnswerStop) {
+      partnerAnswerStop = onSnapshot(doc(dayRef, "answers", partnerUid), partnerSnapshot => {
+        dailyPartnerAnswer = partnerSnapshot.exists() ? partnerSnapshot.data() : null;
+        renderDailyUs();
+      }, error => log(friendlyError(error), "err"));
+      dailyUnsubs.push(() => partnerAnswerStop?.());
+    }
+    renderDailyUs();
+  }, error => log(friendlyError(error), "err")));
+
+  dailyUnsubs.push(onSnapshot(doc(dayRef, "checkins", currentUser.uid), snapshot => {
+    dailyMyCheckin = snapshot.exists() ? snapshot.data() : null;
+    if (dailyMyCheckin) {
+      if (document.activeElement !== $("dailyMood")) $("dailyMood").value = dailyMyCheckin.mood || "Loved";
+      if (document.activeElement !== $("dailyCheckinNote")) $("dailyCheckinNote").value = dailyMyCheckin.note || "";
+      $("dailyCheckinSave").textContent = "Update check-in";
+    }
+    renderDailyUs();
+  }, error => log(friendlyError(error), "err")));
+
+  if (partnerUid) {
+    dailyUnsubs.push(onSnapshot(doc(dayRef, "checkins", partnerUid), snapshot => {
+      dailyPartnerCheckin = snapshot.exists() ? snapshot.data() : null;
+      renderDailyUs();
+    }, error => log(friendlyError(error), "err")));
+  }
+}
+
+function renderDailyUs() {
+  if (dailyMine && dailyPartnerAnswer?.answer) {
+    $("dailyPartnerAnswer").textContent = dailyPartnerAnswer.answer;
+  } else if (dailyMine) {
+    $("dailyPartnerAnswer").textContent = "Your answer is saved. Your person's response will appear here when they answer too.";
+  } else {
+    $("dailyPartnerAnswer").textContent = "Submit your answer first. Then you can read each other's responses.";
+  }
+  if (dailyPartnerCheckin) {
+    $("dailyPartnerCheckin").textContent = `${dailyPartnerCheckin.mood || "Checked in"}${dailyPartnerCheckin.note ? `\n${dailyPartnerCheckin.note}` : ""}`;
+  } else {
+    $("dailyPartnerCheckin").textContent = "Their check-in will appear here when they share it.";
+  }
+}
+
+async function saveDailyAnswer() {
+  if (!code || !currentUser) return;
+  const answer = $("dailyAnswer").value.trim();
+  if (!answer || answer.length > 1000) return log("Write an answer of up to 1,000 characters.", "err");
+  const now = Date.now();
+  const dayRef = doc(db, "couples", code, "daily", localDateKey());
+  const batch = writeBatch(db);
+  batch.set(doc(dayRef, "answers", currentUser.uid), {
+    uid: currentUser.uid,
+    answer,
+    createdAt: dailyMine?.createdAt || now,
+    updatedAt: now
+  });
+  batch.set(doc(collection(db, "couples", code, "activity")), {
+    actorUid: currentUser.uid,
+    type: "daily_answered",
+    title: "Answered today's prompt",
+    summary: "Submit your own answer to reveal both responses.",
+    targetCollection: "daily",
+    targetId: localDateKey(),
+    createdAt: now
+  });
+  try { await batch.commit(); log("Your Daily Us answer is saved.", "success"); }
+  catch (error) { log(friendlyError(error), "err"); }
+}
+
+async function saveDailyCheckin() {
+  if (!code || !currentUser) return;
+  const mood = $("dailyMood").value;
+  const note = $("dailyCheckinNote").value.trim();
+  if (note.length > 240) return log("Keep the check-in note under 240 characters.", "err");
+  const now = Date.now();
+  const dateKey = localDateKey();
+  const dayRef = doc(db, "couples", code, "daily", dateKey);
+  const batch = writeBatch(db);
+  batch.set(doc(dayRef, "checkins", currentUser.uid), {
+    uid: currentUser.uid, mood, note, updatedAt: now
+  });
+  batch.set(doc(collection(db, "couples", code, "activity")), {
+    actorUid: currentUser.uid,
+    type: "daily_checkin",
+    title: "Shared a daily check-in",
+    summary: "A mood check-in was added.",
+    targetCollection: "daily",
+    targetId: dateKey,
+    createdAt: now
+  });
+  try { await batch.commit(); log("Your daily check-in is saved.", "success"); }
+  catch (error) { log(friendlyError(error), "err"); }
+}
+
+function activityCategory(type) {
+  if (["todo_created", "bucket_created", "todo_completed"].includes(type)) return "Lists";
+  if (["event_created", "event_updated"].includes(type)) return "Plans";
+  if (type === "note_created") return "Notes";
+  if (type === "memory_created") return "Memories";
+  if (["daily_answered", "daily_checkin"].includes(type)) return "Daily Us";
+  return "Other";
+}
+
+function renderActivity() {
+  const root = $("activityList");
+  if (!root) return;
+  root.replaceChildren();
+  const filter = $("activityFilter")?.value || "All";
+  const filtered = activityEntries.filter(entry => filter === "All" || activityCategory(entry.type) === filter);
+  if (!filtered.length) {
+    const empty = document.createElement("p"); empty.className = "muted";
+    empty.textContent = activityEntries.length ? "No updates in this category yet." : "Your shared activity will appear here.";
+    root.append(empty); return;
+  }
+  filtered.forEach(entry => {
+    const card = document.createElement("div"); card.className = "status";
+    const who = memberNames[entry.actorUid] || (entry.actorUid === currentUser?.uid ? "You" : "Your person");
+    const title = document.createElement("strong"); title.textContent = `${who} · ${entry.title || "Shared an update"}`;
+    const summary = document.createElement("p"); summary.textContent = entry.summary || ""; summary.style.margin = "6px 0";
+    const meta = document.createElement("div"); meta.className = "muted";
+    meta.textContent = `${activityCategory(entry.type)} · ${entry.createdAt ? new Date(entry.createdAt).toLocaleString() : ""}`;
+    card.append(title, summary, meta); root.append(card);
+  });
+}
+
+function leave(message) {
+  stopListeners();
+  memoryObjectUrls.forEach(url => URL.revokeObjectURL(url));
+  memoryObjectUrls.clear();
+  memoryLoads.clear();
+  code = null;
+  items = []; events = []; notes = []; memories = []; activityEntries = [];
+  dailyPartnerUid = null; dailyMine = null; dailyPartnerAnswer = null; dailyMyCheckin = null; dailyPartnerCheckin = null; dailyQuestion = "";
+  memoryCursor = null; memoryHasMore = false; memoryPagingStarted = false; memoryReachedEnd = false;
+  renderItems(); renderEvents(); renderNotes(); renderMemories();
+  try { localStorage.removeItem(PARTNER_CODE_KEY); } catch (_) {}
+  show(["home", "together", "todoBox", "bucketBox", "calendarBox", "notesBox", "memoriesBox", "dailyBox", "activityBox"], false);
+  if (currentUser?.isAnonymous) show(["pair"], true);
+  log(message, "err");
+}
+
+function renderCounter(epochDay) {
+  const element = $("counter");
+  if (epochDay == null) {
+    element.className = "muted";
+    element.textContent = "No anniversary set yet.";
+    $("annIn").value = "";
+    return;
+  }
+  $("annIn").value = new Date(epochDay * 86400000).toISOString().slice(0, 10);
+  const now = new Date();
+  const today = Math.floor(Date.UTC(now.getFullYear(), now.getMonth(), now.getDate()) / 86400000);
+  const days = today - epochDay;
+  element.className = "";
+  element.replaceChildren();
+  if (days < 0) {
+    element.textContent = `Your story starts in ${-days} days`;
+    return;
+  }
+  const big = document.createElement("div");
+  big.className = "big";
+  big.textContent = String(days);
+  const sub = document.createElement("div");
+  sub.textContent = "days together";
+  const next = (Math.floor(days / 100) + 1) * 100;
+  const milestone = document.createElement("div");
+  milestone.className = "muted";
+  milestone.textContent = `Next milestone: day ${next} (in ${next - days} days)`;
+  element.append(big, sub, milestone);
+}
+
+async function saveMyNickname() {
+  if (!code || !currentUser) return;
+  const nickname = $("myNickname").value.trim();
+  if (!nickname || nickname.length > 24) return log("Enter a nickname of 1–24 characters.", "err");
+  try {
+    await updateDoc(coupleRef(code), { [`memberNames.${currentUser.uid}`]: nickname });
+    log("Your nickname is saved. It will appear in your partner's notifications.", "success");
+  } catch (error) { log(friendlyError(error), "err"); }
+}
+
+async function saveSharedName() {
+  if (!code) return;
+  const name = $("sharedName").value.trim();
+  if (!name || name.length > 32) return log("Enter a shared name of 1–32 characters.", "err");
+  try {
+    await updateDoc(coupleRef(code), { coupleName: name });
+    log("Shared name updated on both devices.", "success");
+  } catch (error) { log(friendlyError(error), "err"); }
+}
+
+async function saveAnniversary() {
+  if (!code) return;
+  const value = $("annIn").value;
+  if (!value) return log("Choose an anniversary date.", "err");
+  const [year, month, day] = value.split("-").map(Number);
+  const epochDay = Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+  try {
+    await updateDoc(coupleRef(code), { anniversary: epochDay });
+    log("Anniversary saved.", "success");
+  } catch (error) { log(friendlyError(error), "err"); }
+}
+
+async function addItem(type) {
+  if (!code) return;
+  const input = $(type + "In");
+  const text = input.value.trim();
+  if (!text) return;
+  if (text.length > 500) return log("List items must be 500 characters or fewer.", "err");
+  try {
+    const now = Date.now();
+    const itemRef = doc(collection(db, "couples", code, "items"));
+    const batch = writeBatch(db);
+    batch.set(itemRef, { type, text, done: false, createdAt: now, createdBy: currentUser.uid });
+    batch.set(doc(collection(db, "couples", code, "activity")), {
+      actorUid: currentUser.uid, type: type === "bucket" ? "bucket_created" : "todo_created",
+      title: type === "bucket" ? "Added a dream" : "Added a to-do", summary: text.slice(0, 180),
+      targetCollection: "items", targetId: itemRef.id, createdAt: now
+    });
+    await batch.commit();
+    input.value = "";
+    log("Item added.", "success");
+  } catch (error) { log(friendlyError(error), "err"); }
+}
+
+function renderItems() {
+  for (const type of ["todo", "bucket"]) {
+    const list = $(type + "List");
+    list.replaceChildren();
+    items.filter(item => item.type === type).forEach(item => {
+      const li = document.createElement("li");
+      if (item.done) li.className = "done";
+      const checkbox = document.createElement("input");
+      checkbox.type = "checkbox";
+      checkbox.checked = !!item.done;
+      checkbox.setAttribute("aria-label", `Mark ${item.text} ${item.done ? "not done" : "done"}`);
+      checkbox.onchange = async () => {
+        checkbox.disabled = true;
+        try {
+          const batch = writeBatch(db);
+          batch.update(doc(db, "couples", code, "items", item.id), { done: checkbox.checked });
+          if (checkbox.checked) batch.set(doc(collection(db, "couples", code, "activity")), {
+            actorUid: currentUser.uid, type: "todo_completed", title: "Completed a little task",
+            summary: item.text.slice(0, 180), targetCollection: "items", targetId: item.id, createdAt: Date.now()
+          });
+          await batch.commit();
+          log("Item updated.", "success");
+        } catch (error) {
+          checkbox.checked = !!item.done;
+          log(friendlyError(error), "err");
+        } finally { checkbox.disabled = false; }
+      };
+      const span = document.createElement("span");
+      span.textContent = item.text;
+      const remove = document.createElement("button");
+      remove.className = "alt";
+      remove.textContent = "Delete";
+      remove.onclick = async () => {
+        remove.disabled = true;
+        try {
+          await deleteDoc(doc(db, "couples", code, "items", item.id));
+          log("Item deleted.", "success");
+        } catch (error) {
+          log(friendlyError(error), "err");
+          remove.disabled = false;
+        }
+      };
+      li.append(checkbox, span, remove);
+      list.append(li);
+    });
+  }
+}
+
+function epochDayFromInput(value) {
+  if (!value) throw new Error("Choose a date.");
+  const [year, month, day] = value.split("-").map(Number);
+  return Math.floor(Date.UTC(year, month - 1, day) / 86400000);
+}
+
+async function addEvent() {
+  if (!code || busy) return;
+  const title = $("eventTitle").value.trim();
+  const description = $("eventDescription").value.trim();
+  if (!title || title.length > 80 || description.length > 500) return log("Enter a title (up to 80 characters) and details under 500 characters.", "err");
+  try {
+    const allDay = $("eventAllDay").checked;
+    const startTime = allDay ? "" : $("eventStart").value;
+    const endTime = allDay ? "" : $("eventEnd").value;
+    if (!allDay && !startTime) return log("Choose a start time.", "err");
+    const now = Date.now();
+    const eventRef = doc(collection(db, "couples", code, "events"));
+    const batch = writeBatch(db);
+    batch.set(eventRef, {
+      title, description, dateEpochDay: epochDayFromInput($("eventDate").value),
+      allDay, startTime, endTime, reminderMinutes: Number($("eventReminder").value),
+      createdBy: currentUser.uid, createdAt: now, updatedAt: now
+    });
+    batch.set(doc(collection(db, "couples", code, "activity")), {
+      actorUid: currentUser.uid, type: "event_created", title: "Added a plan", summary: title,
+      targetCollection: "events", targetId: eventRef.id, createdAt: now
+    });
+    await batch.commit();
+    $("eventTitle").value = ""; $("eventDescription").value = "";
+    log("Shared calendar plan added.", "success");
+  } catch (error) { log(friendlyError(error), "err"); }
+}
+
+function renderEvents() {
+  const root = $("eventList"); root.replaceChildren();
+  if (!events.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No shared plans yet."; root.append(empty); return; }
+  events.forEach(event => {
+    const card = document.createElement("div"); card.className = "status";
+    const title = document.createElement("strong"); title.textContent = event.title || "Untitled plan";
+    const date = document.createElement("div"); date.className = "muted";
+    date.textContent = new Date(Number(event.dateEpochDay) * 86400000).toLocaleDateString(undefined, { weekday: "short", month: "short", day: "numeric", year: "numeric", timeZone: "UTC" });
+    const time = document.createElement("div"); time.className = "muted";
+    time.textContent = event.allDay ? "All day" : [event.startTime, event.endTime].filter(Boolean).join(" – ");
+    const description = document.createElement("p"); description.textContent = event.description || "";
+    const remove = document.createElement("button"); remove.className = "alt"; remove.textContent = "Delete";
+    remove.onclick = async () => { try { await deleteDoc(doc(db, "couples", code, "events", event.id)); log("Calendar plan deleted.", "success"); } catch (error) { log(friendlyError(error), "err"); } };
+    card.append(title, date, time, description, remove); root.append(card);
+  });
+}
+
+async function addNote() {
+  if (!code || busy) return;
+  const title = $("noteTitle").value.trim();
+  const text = $("noteText").value.trim();
+  if (!text || title.length > 80 || text.length > 2000) return log("Write a note of up to 2,000 characters.", "err");
+  const now = Date.now();
+  try {
+    const noteRef = doc(collection(db, "couples", code, "notes"));
+    const batch = writeBatch(db);
+    batch.set(noteRef, { title, text, createdBy: currentUser.uid, createdAt: now, updatedAt: now, pinned: false });
+    batch.set(doc(collection(db, "couples", code, "activity")), {
+      actorUid: currentUser.uid, type: "note_created", title: "Sent a love note",
+      summary: (title || text).slice(0, 180), targetCollection: "notes", targetId: noteRef.id, createdAt: now
+    });
+    await batch.commit();
+    $("noteTitle").value = ""; $("noteText").value = "";
+    log("Love note saved.", "success");
+  } catch (error) { log(friendlyError(error), "err"); }
+}
+
+function renderNotes() {
+  const root = $("noteList"); root.replaceChildren();
+  if (!notes.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No love notes yet."; root.append(empty); return; }
+  notes.forEach(note => {
+    const card = document.createElement("div"); card.className = "status";
+    const title = document.createElement("strong"); title.textContent = note.title || "A note for us";
+    const text = document.createElement("p"); text.style.whiteSpace = "pre-wrap"; text.textContent = note.text || "";
+    const date = document.createElement("div"); date.className = "muted"; date.textContent = new Date(note.createdAt).toLocaleString();
+    const pin = document.createElement("button"); pin.className = "alt"; pin.textContent = note.pinned ? "Unpin" : "Pin";
+    pin.onclick = async () => { try { await updateDoc(doc(db, "couples", code, "notes", note.id), { pinned: !note.pinned, updatedAt: Date.now() }); } catch (error) { log(friendlyError(error), "err"); } };
+    const remove = document.createElement("button"); remove.className = "alt"; remove.textContent = "Delete";
+    remove.onclick = async () => { try { await deleteDoc(doc(db, "couples", code, "notes", note.id)); } catch (error) { log(friendlyError(error), "err"); } };
+    card.append(title, text, date, pin, remove); root.append(card);
+  });
+}
+
+async function compressMemoryPhoto(file) {
+  let bitmap;
+  try { bitmap = await createImageBitmap(file); }
+  catch (_) { throw new Error("This browser cannot read that image. Try a JPEG, PNG, or WebP photo."); }
+  try {
+    let scale = Math.min(1, 1600 / Math.max(bitmap.width, bitmap.height));
+    for (let attempt = 0; attempt < 12; attempt++) {
+      const width = Math.max(1, Math.round(bitmap.width * scale));
+      const height = Math.max(1, Math.round(bitmap.height * scale));
+      const canvas = document.createElement("canvas");
+      canvas.width = width; canvas.height = height;
+      const context = canvas.getContext("2d", { alpha: false });
+      context.fillStyle = "#ffffff";
+      context.fillRect(0, 0, width, height);
+      context.drawImage(bitmap, 0, 0, width, height);
+      for (const quality of [0.86, 0.78, 0.70, 0.62, 0.55]) {
+        const blob = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (blob && blob.size <= 700 * 1024) return blob;
+      }
+      scale *= 0.82;
+      if (Math.min(width, height) <= 480) break;
+    }
+    throw new Error("This photo is too detailed for the free 700 KB memory limit. Choose a smaller image.");
+  } finally { bitmap.close?.(); }
+}
+
+async function compressMemoryThumbnail(blob) {
+  const bitmap = await createImageBitmap(blob);
+  try {
+    let scale = Math.min(1, 320 / Math.max(bitmap.width, bitmap.height));
+    for (let attempt = 0; attempt < 16; attempt++) {
+      const canvas = document.createElement("canvas");
+      canvas.width = Math.max(1, Math.round(bitmap.width * scale));
+      canvas.height = Math.max(1, Math.round(bitmap.height * scale));
+      const context = canvas.getContext("2d", { alpha: false });
+      context.fillStyle = "#ffffff"; context.fillRect(0, 0, canvas.width, canvas.height);
+      context.drawImage(bitmap, 0, 0, canvas.width, canvas.height);
+      for (const quality of [0.68, 0.58, 0.48, 0.38, 0.28]) {
+        const thumbnail = await new Promise(resolve => canvas.toBlob(resolve, "image/jpeg", quality));
+        if (thumbnail && thumbnail.size <= 80 * 1024) return thumbnail;
+      }
+      scale *= 0.78;
+      if (Math.min(canvas.width, canvas.height) <= 24) break;
+    }
+    throw new Error("Couldn't create a small photo preview. Choose another image.");
+  } finally { bitmap.close?.(); }
+}
+
+async function uploadMemory() {
+  if (!code || busy) return;
+  const file = $("memoryFile").files[0];
+  const caption = $("memoryCaption").value.trim();
+  if (!file) return log("Choose an image first.", "err");
+  if (!file.type.startsWith("image/")) return log("Choose an image file.", "err");
+  if (caption.length > 280) return log("Keep captions under 280 characters.", "err");
+  setBusy(true);
+  let memoryRef = null;
+  let uploadedContent = false;
+  try {
+    const photo = await compressMemoryPhoto(file);
+    const thumbnail = await compressMemoryThumbnail(photo);
+    const id = crypto.randomUUID();
+    const fileName = `${id}.jpg`;
+    const now = Date.now();
+    memoryRef = doc(db, "couples", code, "memories", id);
+    await setDoc(memoryRef, {
+      caption, fileName, photoUrl: "", storagePath: "", storageMode: "firestore_blob",
+      status: "pending", createdBy: currentUser.uid, createdAt: now,
+      favorite: false, sizeBytes: 0, thumbnailBytes: 0
+    });
+    const batchContent = writeBatch(db);
+    batchContent.set(doc(db, "couples", code, "memories", id, "content", "image"), {
+      image: Bytes.fromUint8Array(new Uint8Array(await photo.arrayBuffer())),
+      contentType: "image/jpeg", createdBy: currentUser.uid, createdAt: now
+    });
+    batchContent.set(doc(db, "couples", code, "memories", id, "content", "thumbnail"), {
+      image: Bytes.fromUint8Array(new Uint8Array(await thumbnail.arrayBuffer())),
+      contentType: "image/jpeg", createdBy: currentUser.uid, createdAt: now
+    });
+    await batchContent.commit();
+    uploadedContent = true;
+    const readyBatch = writeBatch(db);
+    readyBatch.update(memoryRef, { status: "ready", sizeBytes: photo.size, thumbnailBytes: thumbnail.size });
+    readyBatch.set(doc(collection(db, "couples", code, "activity")), {
+      actorUid: currentUser.uid, type: "memory_created", title: "Added a memory",
+      summary: caption || "A new photo was added to your memories.",
+      targetCollection: "memories", targetId: id, createdAt: now
+    });
+    await readyBatch.commit();
+    memoryObjectUrls.set(id, URL.createObjectURL(thumbnail));
+    $("memoryFile").value = ""; $("memoryCaption").value = "";
+    log(`Memory saved with a ${Math.round(thumbnail.size / 1024)} KB preview.`, "success");
+  } catch (error) {
+    if (memoryRef) {
+      const id = memoryRef.id;
+      await deleteDoc(doc(db, "couples", code, "memories", id, "content", "image")).catch(() => {});
+      await deleteDoc(doc(db, "couples", code, "memories", id, "content", "thumbnail")).catch(() => {});
+      await deleteDoc(memoryRef).catch(() => {});
+    }
+    log(friendlyError(error), "err");
+  } finally { setBusy(false); }
+}
+
+function renderMemories() {
+  const root = $("memoryList"); root.replaceChildren();
+  const loadedBytes = memories.reduce((sum, memory) => sum + Number(memory.sizeBytes || 0), 0);
+  $("memoryUsage").textContent = `${(loadedBytes / (1024 * 1024)).toFixed(1)} MB in loaded memories`;
+  $("memoryLoadOlder").hidden = !memoryHasMore;
+  const liveIds = new Set(memories.map(memory => memory.id));
+  for (const [id, url] of memoryObjectUrls) {
+    if (!liveIds.has(id)) { URL.revokeObjectURL(url); memoryObjectUrls.delete(id); }
+  }
+  if (!memories.length) { const empty = document.createElement("p"); empty.className = "muted"; empty.textContent = "No shared memories yet."; root.append(empty); return; }
+  const searchText = $("memorySearch")?.value.trim().toLowerCase() || "";
+  const favoritesOnly = Boolean($("memoryFavoritesOnly")?.checked);
+  const visibleMemories = memories.filter(memory =>
+    (!favoritesOnly || memory.favorite === true) &&
+    (!searchText || String(memory.caption || "").toLowerCase().includes(searchText))
+  );
+  if (!visibleMemories.length) {
+    const empty = document.createElement("p"); empty.className = "muted";
+    empty.textContent = memories.length ? "No memories match this filter." : "No shared memories yet.";
+    root.append(empty);
+  }
+  let lastMonthKey = "";
+  visibleMemories.forEach(memory => {
+    const date = new Date(Number(memory.createdAt || 0));
+    const monthKey = `${date.getFullYear()}-${date.getMonth()}`;
+    if (monthKey !== lastMonthKey) {
+      lastMonthKey = monthKey;
+      const heading = document.createElement("h3");
+      heading.textContent = date.toLocaleDateString(undefined, { month: "long", year: "numeric" });
+      root.append(heading);
+    }
+    const card = document.createElement("div"); card.className = "status";
+    if (memory.status === "ready") {
+      const image = document.createElement("img");
+      image.alt = memory.caption || "Shared memory";
+      image.loading = "lazy"; image.style.width = "100%"; image.style.maxHeight = "240px"; image.style.objectFit = "cover"; image.style.borderRadius = "10px";
+      const cachedUrl = memoryObjectUrls.get(memory.id);
+      if (cachedUrl) image.src = cachedUrl;
+      else if (memory.photoUrl) image.src = memory.photoUrl; // legacy Storage-backed records
+      else {
+        image.alt = "Loading shared memory";
+        image.style.minHeight = "90px";
+        image.style.background = "#f7e8ee";
+        if (!memoryLoads.has(memory.id)) {
+          memoryLoads.add(memory.id);
+          const requestedCode = code;
+          getDoc(doc(db, "couples", requestedCode, "memories", memory.id, "content", "thumbnail"))
+            .then(async thumbnailSnapshot => {
+              const selectedSnapshot = thumbnailSnapshot;
+              if (!selectedSnapshot.exists() || code !== requestedCode || !memories.some(item => item.id === memory.id)) return;
+              const value = selectedSnapshot.data().image;
+              if (!value || typeof value.toUint8Array !== "function") return;
+              const blob = new Blob([value.toUint8Array()], { type: selectedSnapshot.data().contentType || "image/jpeg" });
+              const url = URL.createObjectURL(blob);
+              memoryObjectUrls.set(memory.id, url);
+              image.src = url;
+              image.alt = memory.caption || "Shared memory";
+            })
+            .catch(error => { image.alt = "Couldn't load photo. Check connection."; log(friendlyError(error), "err"); })
+            .finally(() => memoryLoads.delete(memory.id));
+        }
+      }
+      card.append(image);
+    }
+    const caption = document.createElement("p"); caption.textContent = memory.caption || "A moment together";
+    const state = document.createElement("div"); state.className = "muted"; state.textContent = memory.status === "ready" ? "Saved in shared memories" : "Waiting to sync";
+    const remove = document.createElement("button"); remove.className = "alt"; remove.textContent = "Delete";
+    remove.onclick = async () => {
+      try {
+        await deleteDoc(doc(db, "couples", code, "memories", memory.id, "content", "image"));
+        await deleteDoc(doc(db, "couples", code, "memories", memory.id, "content", "thumbnail"));
+        await deleteDoc(doc(db, "couples", code, "memories", memory.id));
+        const url = memoryObjectUrls.get(memory.id); if (url) URL.revokeObjectURL(url);
+        memoryObjectUrls.delete(memory.id);
+        memories = memories.filter(item => item.id !== memory.id);
+        renderMemories();
+        log("Memory deleted.", "success");
+      } catch (error) { log(friendlyError(error), "err"); }
+    };
+    const favorite = document.createElement("button");
+    favorite.className = "alt";
+    favorite.textContent = memory.favorite ? "★ Favorite" : "☆ Favorite";
+    favorite.onclick = async () => {
+      try { await updateDoc(doc(db, "couples", code, "memories", memory.id), { favorite: !memory.favorite }); }
+      catch (error) { log(friendlyError(error), "err"); }
+    };
+    const download = document.createElement("button");
+    download.className = "alt"; download.textContent = "Download";
+    download.onclick = async () => {
+      try {
+        const snapshot = await getDoc(doc(db, "couples", code, "memories", memory.id, "content", "image"));
+        const value = snapshot.data()?.image;
+        if (!value || typeof value.toUint8Array !== "function") throw new Error("The full photo is unavailable.");
+        const url = URL.createObjectURL(new Blob([value.toUint8Array()], { type: "image/jpeg" }));
+        const link = document.createElement("a"); link.href = url; link.download = memory.fileName || `${memory.id}.jpg`;
+        document.body.append(link); link.click(); link.remove(); setTimeout(() => URL.revokeObjectURL(url), 1500);
+      } catch (error) { log(friendlyError(error), "err"); }
+    };
+    card.append(caption, state, favorite, download, remove); root.append(card);
+  });
+}
+
+
+async function loadOlderMemories() {
+  if (!code || !memoryCursor || !memoryHasMore) return;
+  $("memoryLoadOlder").disabled = true;
+  try {
+    memoryPagingStarted = true;
+    const snapshot = await getDocs(query(collection(db, "couples", code, "memories"), orderBy("createdAt", "desc"), startAfter(memoryCursor), limit(36)));
+    const seen = new Set(memories.map(memory => memory.id));
+    memories.push(...snapshot.docs.map(item => ({ id: item.id, ...item.data() })).filter(item => !seen.has(item.id)));
+    if (snapshot.docs.length) memoryCursor = snapshot.docs.at(-1);
+    memoryReachedEnd = snapshot.size < 36;
+    memoryHasMore = !memoryReachedEnd;
+    renderMemories();
+  } catch (error) { log(friendlyError(error), "err"); }
+  finally { $("memoryLoadOlder").disabled = false; }
+}
+
+$("connect").addEventListener("click", connect);
+$("join").addEventListener("click", joinCode);
+$("annSet").addEventListener("click", saveAnniversary);
+$("nameSave").addEventListener("click", saveSharedName);
+$("nicknameSave").addEventListener("click", saveMyNickname);
+$("codeIn").addEventListener("input", event => { event.target.value = event.target.value.toUpperCase().replace(/[^A-Z0-9]/g, "").slice(0, NEW_CODE_LENGTH); });
+$("codeIn").addEventListener("keydown", event => { if (event.key === "Enter") joinCode(); });
+$("eventAdd").addEventListener("click", addEvent);
+$("noteAdd").addEventListener("click", addNote);
+$("memoryAdd").addEventListener("click", uploadMemory);
+$("memoryLoadOlder").addEventListener("click", loadOlderMemories);
+$("dailyAnswerSave").addEventListener("click", saveDailyAnswer);
+$("dailyCheckinSave").addEventListener("click", saveDailyCheckin);
+$("activityFilter").addEventListener("change", renderActivity);
+$("memorySearch").addEventListener("input", renderMemories);
+$("memoryFavoritesOnly").addEventListener("change", renderMemories);
+$("eventAllDay").addEventListener("change", () => {
+  const timed = !$("eventAllDay").checked;
+  $("eventStart").disabled = !timed; $("eventEnd").disabled = !timed;
+});
+$("eventDate").value = new Date().toISOString().slice(0, 10);
+document.querySelectorAll("[data-add]").forEach(button => {
+  button.addEventListener("click", () => addItem(button.dataset.add));
+  const input = $(button.dataset.add + "In");
+  input.addEventListener("keydown", event => { if (event.key === "Enter") addItem(button.dataset.add); });
+});
+</script>
+</body>
+</html>

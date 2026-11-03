@@ -1,0 +1,568 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{db}/documents {
+    function signedIn() {
+      return request.auth != null;
+    }
+
+    function isCoupleMember(cid) {
+      return signedIn()
+        && request.auth.uid in get(/databases/$(db)/documents/couples/$(cid)).data.members;
+    }
+
+    function allMembersApprovedForDeletion(data) {
+      let members = data.members;
+      let approvals = data.get('deleteApprovals', {});
+      return members is list
+        && members.size() >= 1
+        && members.size() <= 2
+        && approvals is map
+        && approvals.keys().hasAll(members)
+        && approvals[members[0]] == true
+        && (members.size() == 1 || approvals[members[1]] == true);
+    }
+
+    match /couples/{cid} {
+      allow get: if signedIn() && (
+        !exists(/databases/$(db)/documents/couples/$(cid))
+        || request.auth.uid in resource.data.members
+        || resource.data.members.size() == 1
+      );
+
+      allow list: if signedIn() && request.auth.uid in resource.data.members;
+
+      allow create: if signedIn()
+        && request.resource.data.keys().hasAll(['members', 'createdAt', 'anniversary', 'coupleName', 'memberNames', 'deleteApprovals', 'inviteOnly'])
+        && request.resource.data.keys().hasOnly(['members', 'createdAt', 'anniversary', 'coupleName', 'memberNames', 'deleteApprovals', 'inviteOnly'])
+        && request.resource.data.members is list
+        && request.resource.data.members.size() == 1
+        && request.resource.data.members[0] == request.auth.uid
+        && request.resource.data.createdAt is int
+        && request.resource.data.anniversary is int
+        && request.resource.data.coupleName is string
+        && request.resource.data.coupleName.size() > 0
+        && request.resource.data.coupleName.size() <= 32
+        && request.resource.data.memberNames is map
+        && request.resource.data.memberNames.keys().hasOnly(request.resource.data.members)
+        && request.resource.data.memberNames[request.auth.uid] is string
+        && request.resource.data.memberNames[request.auth.uid].size() > 0
+        && request.resource.data.memberNames[request.auth.uid].size() <= 24
+        && request.resource.data.deleteApprovals is map
+        && request.resource.data.deleteApprovals.size() == 0
+        && request.resource.data.inviteOnly == true;
+
+      allow update: if signedIn() && (
+        (
+          request.auth.uid in resource.data.members
+          && (
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['anniversary'])
+              && request.resource.data.anniversary is int
+            )
+            ||
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['coupleName'])
+              && request.resource.data.coupleName is string
+              && request.resource.data.coupleName.size() > 0
+              && request.resource.data.coupleName.size() <= 32
+            )
+            ||
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberNames'])
+              && request.resource.data.memberNames is map
+              && request.resource.data.memberNames.keys().hasOnly(resource.data.members)
+              && request.resource.data.memberNames.diff(resource.data.get('memberNames', {})).affectedKeys().hasOnly([request.auth.uid])
+              && request.resource.data.memberNames[request.auth.uid] is string
+              && request.resource.data.memberNames[request.auth.uid].size() > 0
+              && request.resource.data.memberNames[request.auth.uid].size() <= 24
+            )
+            ||
+            (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleteApprovals'])
+              && request.resource.data.deleteApprovals is map
+              && request.resource.data.deleteApprovals.keys().hasOnly(resource.data.members)
+              && request.resource.data.deleteApprovals.diff(resource.data.get('deleteApprovals', {})).affectedKeys().hasOnly([request.auth.uid])
+              && request.resource.data.deleteApprovals[request.auth.uid] == true
+            )
+          )
+        )
+        ||
+        (
+          resource.data.members is list
+          && resource.data.members.size() == 1
+          && !(request.auth.uid in resource.data.members)
+          && request.resource.data.members is list
+          && request.resource.data.members.size() == 2
+          && request.resource.data.members[0] == resource.data.members[0]
+          && request.resource.data.members[1] == request.auth.uid
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['members', 'memberNames', 'deleteApprovals', 'inviteOnly'])
+          && request.resource.data.memberNames is map
+          && request.resource.data.memberNames.keys().hasOnly(request.resource.data.members)
+          && request.resource.data.memberNames.diff(resource.data.get('memberNames', {})).affectedKeys().hasOnly([request.auth.uid])
+          && request.resource.data.memberNames[request.auth.uid] is string
+          && request.resource.data.memberNames[request.auth.uid].size() > 0
+          && request.resource.data.memberNames[request.auth.uid].size() <= 24
+          && request.resource.data.deleteApprovals == {}
+          && request.resource.data.inviteOnly == false
+        )
+      );
+
+      allow delete: if signedIn()
+        && request.auth.uid in resource.data.members
+        && (
+          allMembersApprovedForDeletion(resource.data)
+          || (
+            resource.data.members is list
+            && resource.data.members.size() == 1
+            && resource.data.members[0] == request.auth.uid
+            && resource.data.get('inviteOnly', true) == true
+          )
+        );
+
+      match /items/{iid} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['type', 'text', 'done', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['type', 'text', 'done', 'createdAt', 'createdBy', 'originalCreatedBy'])
+          && request.resource.data.type is string
+          && request.resource.data.type in ['todo', 'bucket']
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 500
+          && request.resource.data.done is bool
+          && request.resource.data.createdAt is int
+          && (!('createdBy' in request.resource.data.keys()) || request.resource.data.createdBy == request.auth.uid)
+          && (!('originalCreatedBy' in request.resource.data.keys()) || request.resource.data.originalCreatedBy in get(/databases/$(db)/documents/couples/$(cid)).data.members);
+        allow update: if isCoupleMember(cid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['done'])
+          && request.resource.data.done is bool;
+        allow delete: if isCoupleMember(cid);
+      }
+
+      match /events/{eventId} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll([
+            'title', 'description', 'dateEpochDay', 'allDay', 'startTime', 'endTime',
+            'reminderMinutes', 'createdBy', 'createdAt', 'updatedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'title', 'description', 'dateEpochDay', 'allDay', 'startTime', 'endTime',
+            'reminderMinutes', 'createdBy', 'createdAt', 'updatedAt', 'originalCreatedBy'
+          ])
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 80
+          && request.resource.data.description is string
+          && request.resource.data.description.size() <= 500
+          && request.resource.data.dateEpochDay is int
+          && request.resource.data.allDay is bool
+          && request.resource.data.startTime is string
+          && request.resource.data.endTime is string
+          && request.resource.data.reminderMinutes in [0, 10, 60, 1440]
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedAt is int
+          && (!('originalCreatedBy' in request.resource.data.keys()) || request.resource.data.originalCreatedBy in get(/databases/$(db)/documents/couples/$(cid)).data.members);
+        allow update: if isCoupleMember(cid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'title', 'description', 'dateEpochDay', 'allDay', 'startTime', 'endTime',
+            'reminderMinutes', 'updatedAt'
+          ])
+          && request.resource.data.title is string
+          && request.resource.data.title.size() > 0
+          && request.resource.data.title.size() <= 80
+          && request.resource.data.description is string
+          && request.resource.data.description.size() <= 500
+          && request.resource.data.dateEpochDay is int
+          && request.resource.data.allDay is bool
+          && request.resource.data.startTime is string
+          && request.resource.data.endTime is string
+          && request.resource.data.reminderMinutes in [0, 10, 60, 1440]
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedAt is int;
+        allow delete: if isCoupleMember(cid);
+      }
+
+      match /notes/{noteId} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['title', 'text', 'createdBy', 'createdAt', 'updatedAt', 'pinned'])
+          && request.resource.data.keys().hasOnly(['title', 'text', 'createdBy', 'createdAt', 'updatedAt', 'pinned', 'originalCreatedBy'])
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 80
+          && request.resource.data.text is string
+          && request.resource.data.text.size() > 0
+          && request.resource.data.text.size() <= 2000
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedAt is int
+          && request.resource.data.pinned is bool
+          && (!('originalCreatedBy' in request.resource.data.keys()) || request.resource.data.originalCreatedBy in get(/databases/$(db)/documents/couples/$(cid)).data.members);
+        allow update: if isCoupleMember(cid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pinned', 'updatedAt'])
+          && request.resource.data.pinned is bool
+          && request.resource.data.updatedAt is int
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.text == resource.data.text;
+        allow delete: if isCoupleMember(cid);
+      }
+
+      match /memories/{memoryId} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll([
+            'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt', 'favorite', 'sizeBytes', 'thumbnailBytes', 'originalCreatedBy'
+          ])
+          && request.resource.data.caption is string
+          && request.resource.data.caption.size() <= 280
+          && request.resource.data.fileName is string
+          && request.resource.data.fileName.matches('^[A-Za-z0-9_-]{1,60}\\.jpg$')
+          && request.resource.data.photoUrl == ''
+          && request.resource.data.storagePath == ''
+          && request.resource.data.storageMode == 'firestore_blob'
+          && request.resource.data.status == 'pending'
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt is int
+          && (!('favorite' in request.resource.data.keys()) || request.resource.data.favorite is bool)
+          && (!('sizeBytes' in request.resource.data.keys()) || (request.resource.data.sizeBytes is int && request.resource.data.sizeBytes <= 716800))
+          && (!('thumbnailBytes' in request.resource.data.keys()) || (request.resource.data.thumbnailBytes is int && request.resource.data.thumbnailBytes <= 81920))
+          && (!('originalCreatedBy' in request.resource.data.keys()) || request.resource.data.originalCreatedBy in get(/databases/$(db)/documents/couples/$(cid)).data.members);
+        allow update: if isCoupleMember(cid)
+          && request.auth.uid == resource.data.createdBy
+          && resource.data.storageMode == 'firestore_blob'
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'sizeBytes', 'thumbnailBytes'])
+          && request.resource.data.status == 'ready'
+          && request.resource.data.sizeBytes is int
+          && request.resource.data.sizeBytes <= 716800
+          && request.resource.data.thumbnailBytes is int
+          && request.resource.data.thumbnailBytes <= 81920
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.fileName == resource.data.fileName
+          && request.resource.data.caption == resource.data.caption
+          && exists(/databases/$(db)/documents/couples/$(cid)/memories/$(memoryId)/content/image)
+          && exists(/databases/$(db)/documents/couples/$(cid)/memories/$(memoryId)/content/thumbnail);
+        allow update: if isCoupleMember(cid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favorite'])
+          && request.resource.data.favorite is bool;
+        allow delete: if isCoupleMember(cid);
+
+        match /content/{contentId} {
+          allow get: if contentId in ['image', 'thumbnail'] && isCoupleMember(cid);
+          allow list: if false;
+          allow create: if isCoupleMember(cid)
+            && contentId in ['image', 'thumbnail']
+            && get(/databases/$(db)/documents/couples/$(cid)/memories/$(memoryId)).data.createdBy == request.auth.uid
+            && get(/databases/$(db)/documents/couples/$(cid)/memories/$(memoryId)).data.status == 'pending'
+            && request.resource.data.keys().hasAll(['image', 'contentType', 'createdBy', 'createdAt'])
+            && request.resource.data.keys().hasOnly(['image', 'contentType', 'createdBy', 'createdAt'])
+            && request.resource.data.image is bytes
+            && (contentId == 'thumbnail'
+              ? request.resource.data.image.size() <= 81920
+              : request.resource.data.image.size() <= 716800)
+            && request.resource.data.contentType == 'image/jpeg'
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.createdAt is int;
+          allow update: if false;
+          allow delete: if isCoupleMember(cid);
+        }
+      }
+
+      // Shared custom cover selection for the monthly Memories albums.
+      // Only couple members can read or change these shared cover references.
+      match /memoryAlbumCovers/{albumId} {
+        allow read: if isCoupleMember(cid);
+
+        allow create, update: if isCoupleMember(cid)
+          && albumId.matches('^[0-9]{4}-(0[1-9]|1[0-2])$')
+          && request.resource.data.keys().hasAll(['coverMemoryId', 'updatedBy', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['coverMemoryId', 'updatedBy', 'updatedAt'])
+          && request.resource.data.coverMemoryId is string
+          && request.resource.data.coverMemoryId.size() > 0
+          && request.resource.data.coverMemoryId.size() <= 128
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt is int
+          && exists(/databases/$(db)/documents/couples/$(cid)/memories/$(request.resource.data.coverMemoryId));
+
+        allow delete: if isCoupleMember(cid);
+      }
+
+      match /activity/{activityId} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['actorUid', 'type', 'title', 'summary', 'targetCollection', 'targetId', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['actorUid', 'type', 'title', 'summary', 'targetCollection', 'targetId', 'createdAt', 'originalActorUid'])
+          && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.type in ['todo_created', 'bucket_created', 'todo_completed', 'event_created', 'event_updated', 'note_created', 'memory_created', 'daily_answered', 'daily_checkin', 'backup_restored']
+          && request.resource.data.title is string
+          && request.resource.data.title.size() <= 100
+          && request.resource.data.summary is string
+          && request.resource.data.summary.size() <= 180
+          && request.resource.data.targetCollection in ['items', 'events', 'notes', 'memories', 'daily', '']
+          && request.resource.data.targetId is string
+          && request.resource.data.targetId.size() <= 128
+          && request.resource.data.createdAt is int
+          && (!('originalActorUid' in request.resource.data.keys()) || request.resource.data.originalActorUid in get(/databases/$(db)/documents/couples/$(cid)).data.members);
+        allow update: if false;
+        allow delete: if isCoupleMember(cid)
+          && allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data);
+      }
+
+      match /daily/{dateKey} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['dateKey', 'question', 'questionIndex', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['dateKey', 'question', 'questionIndex', 'createdAt'])
+          && request.resource.data.dateKey == dateKey
+          && request.resource.data.question is string
+          && request.resource.data.question.size() > 0
+          && request.resource.data.question.size() <= 240
+          && request.resource.data.questionIndex is int
+          && request.resource.data.createdAt is int;
+        allow update: if false;
+        allow delete: if isCoupleMember(cid)
+          && allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data);
+
+        match /answers/{uid} {
+          allow get: if isCoupleMember(cid) && (
+            request.auth.uid == uid
+            || exists(/databases/$(db)/documents/couples/$(cid)/daily/$(dateKey)/answers/$(request.auth.uid))
+          );
+          allow list: if false;
+          allow create: if isCoupleMember(cid)
+            && request.auth.uid == uid
+            && request.resource.data.keys().hasAll(['uid', 'answer', 'createdAt', 'updatedAt'])
+            && request.resource.data.keys().hasOnly(['uid', 'answer', 'createdAt', 'updatedAt'])
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.answer is string
+            && request.resource.data.answer.size() > 0
+            && request.resource.data.answer.size() <= 1000
+            && request.resource.data.createdAt is int
+            && request.resource.data.updatedAt is int;
+          allow update: if isCoupleMember(cid)
+            && request.auth.uid == uid
+            && request.resource.data.keys().hasAll(['uid', 'answer', 'createdAt', 'updatedAt'])
+            && request.resource.data.keys().hasOnly(['uid', 'answer', 'createdAt', 'updatedAt'])
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.answer is string
+            && request.resource.data.answer.size() > 0
+            && request.resource.data.answer.size() <= 1000
+            && request.resource.data.createdAt == resource.data.createdAt
+            && request.resource.data.updatedAt is int;
+          allow delete: if isCoupleMember(cid) && (
+            request.auth.uid == uid
+            || allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data)
+          );
+        }
+
+        match /checkins/{uid} {
+          allow read: if isCoupleMember(cid);
+          allow create, update: if isCoupleMember(cid)
+            && request.auth.uid == uid
+            && request.resource.data.keys().hasAll(['uid', 'mood', 'note', 'updatedAt'])
+            && request.resource.data.keys().hasOnly(['uid', 'mood', 'note', 'updatedAt'])
+            && request.resource.data.uid == request.auth.uid
+            && request.resource.data.mood in ['Happy', 'Loved', 'Calm', 'Tired', 'Stressed', 'Low']
+            && request.resource.data.note is string
+            && request.resource.data.note.size() <= 240
+            && request.resource.data.updatedAt is int;
+          allow delete: if isCoupleMember(cid) && (
+            request.auth.uid == uid
+            || allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data)
+          );
+        }
+      }
+
+
+      // A couple may read only the latest explicitly shared location of either member.
+      // Each member can write/delete only their own live location document.
+      match /locations/{uid} {
+        allow read: if isCoupleMember(cid);
+        allow create, update: if isCoupleMember(cid)
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasAll([
+            'uid', 'latitude', 'longitude', 'accuracyMeters', 'updatedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'uid', 'latitude', 'longitude', 'accuracyMeters', 'updatedAt'
+          ])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.latitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude is number
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180
+          && request.resource.data.accuracyMeters is number
+          && request.resource.data.accuracyMeters >= 0
+          && request.resource.data.accuracyMeters <= 10000
+          && request.resource.data.updatedAt == request.time;
+        allow delete: if isCoupleMember(cid) && (
+          request.auth.uid == uid
+          || allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data)
+        );
+      }
+
+      // Spark-compatible shared road routing. One signed-in couple member holds
+      // a short-lived lease while calculating and publishing the shared route.
+      function validRouteControl() {
+        return request.resource.data.keys().hasAll(['ownerUid', 'leaseId', 'leaseUntil', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['ownerUid', 'leaseId', 'leaseUntil', 'updatedAt'])
+          && request.resource.data.ownerUid == request.auth.uid
+          && request.resource.data.leaseId is string
+          && request.resource.data.leaseId.size() >= 16
+          && request.resource.data.leaseId.size() <= 64
+          && request.resource.data.leaseUntil is timestamp
+          && request.resource.data.leaseUntil > request.time
+          && request.resource.data.leaseUntil <= request.time + duration.value(2, 'm')
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      function hasActiveRouteLease(cid) {
+        let control = get(/databases/$(db)/documents/couples/$(cid)/map/routeControl).data;
+        return control.ownerUid == request.auth.uid
+          && control.leaseId == request.resource.data.leaseId
+          && control.leaseUntil is timestamp
+          && control.leaseUntil > request.time;
+      }
+
+      function validSharedRoute(cid) {
+        let members = get(/databases/$(db)/documents/couples/$(cid)).data.members;
+        return request.resource.data.keys().hasAll([
+            'status', 'leaseId', 'geometry', 'geometryFormat', 'distanceMeters', 'durationSeconds',
+            'fromUid', 'toUid', 'fromLatitude', 'fromLongitude', 'toLatitude', 'toLongitude',
+            'errorCode', 'updatedAt'
+          ])
+          && request.resource.data.keys().hasOnly([
+            'status', 'leaseId', 'geometry', 'geometryFormat', 'distanceMeters', 'durationSeconds',
+            'fromUid', 'toUid', 'fromLatitude', 'fromLongitude', 'toLatitude', 'toLongitude',
+            'errorCode', 'updatedAt'
+          ])
+          && request.resource.data.status in ['ready', 'unavailable']
+          && request.resource.data.geometry is string
+          && request.resource.data.geometry.size() <= 100000
+          && request.resource.data.geometryFormat == 'polyline6'
+          && request.resource.data.distanceMeters is number
+          && request.resource.data.distanceMeters >= 0
+          && request.resource.data.distanceMeters <= 20000000
+          && request.resource.data.durationSeconds is number
+          && request.resource.data.durationSeconds >= 0
+          && request.resource.data.durationSeconds <= 604800
+          && request.resource.data.fromUid is string
+          && request.resource.data.toUid is string
+          && request.resource.data.fromUid != request.resource.data.toUid
+          && request.resource.data.fromUid in members
+          && request.resource.data.toUid in members
+          && request.resource.data.fromLatitude is number
+          && request.resource.data.fromLatitude >= -90
+          && request.resource.data.fromLatitude <= 90
+          && request.resource.data.fromLongitude is number
+          && request.resource.data.fromLongitude >= -180
+          && request.resource.data.fromLongitude <= 180
+          && request.resource.data.toLatitude is number
+          && request.resource.data.toLatitude >= -90
+          && request.resource.data.toLatitude <= 90
+          && request.resource.data.toLongitude is number
+          && request.resource.data.toLongitude >= -180
+          && request.resource.data.toLongitude <= 180
+          && request.resource.data.errorCode is string
+          && request.resource.data.errorCode.size() <= 64
+          && (request.resource.data.status != 'ready'
+              || (request.resource.data.geometry.size() >= 2
+                  && request.resource.data.errorCode == ''))
+          && (request.resource.data.status != 'unavailable'
+              || (request.resource.data.geometry == ''
+                  && request.resource.data.errorCode.size() > 0))
+          && request.resource.data.updatedAt == request.time;
+      }
+
+      match /map/{mapDocumentId} {
+        allow read: if isCoupleMember(cid);
+
+        // The lease can be created when absent. A new phone may take it only
+        // after the previous owner's timestamp has expired.
+        allow create: if mapDocumentId == 'routeControl'
+          && isCoupleMember(cid)
+          && validRouteControl();
+        allow update: if mapDocumentId == 'routeControl'
+          && isCoupleMember(cid)
+          && validRouteControl()
+          && (
+            resource.data.ownerUid == request.auth.uid
+            || (resource.data.leaseUntil is timestamp && resource.data.leaseUntil <= request.time)
+          );
+
+        // Only the current lease holder may publish the shared route document.
+        allow create, update: if mapDocumentId == 'roadRoute'
+          && isCoupleMember(cid)
+          && hasActiveRouteLease(cid)
+          && validSharedRoute(cid);
+
+        allow delete: if false;
+      }
+
+      match /places/{placeId} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['name', 'latitude', 'longitude', 'radiusMeters', 'createdBy', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['name', 'latitude', 'longitude', 'radiusMeters', 'createdBy', 'createdAt'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 40
+          && request.resource.data.latitude is number
+          && request.resource.data.latitude >= -90
+          && request.resource.data.latitude <= 90
+          && request.resource.data.longitude is number
+          && request.resource.data.longitude >= -180
+          && request.resource.data.longitude <= 180
+          && request.resource.data.radiusMeters is int
+          && request.resource.data.radiusMeters >= 100
+          && request.resource.data.radiusMeters <= 1500
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt is int;
+        allow update: if false;
+        allow delete: if isCoupleMember(cid);
+      }
+
+      match /placeEvents/{eventId} {
+        allow read: if isCoupleMember(cid);
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['eventKey', 'actorUid', 'placeId', 'placeName', 'transition', 'createdAt'])
+          && request.resource.data.keys().hasOnly(['eventKey', 'actorUid', 'placeId', 'placeName', 'transition', 'createdAt'])
+          && request.resource.data.eventKey == eventId
+          && request.resource.data.actorUid == request.auth.uid
+          && request.resource.data.placeId is string
+          && exists(/databases/$(db)/documents/couples/$(cid)/places/$(request.resource.data.placeId))
+          && request.resource.data.placeName is string
+          && request.resource.data.placeName.size() > 0
+          && request.resource.data.placeName.size() <= 40
+          && request.resource.data.transition in ['entered', 'left']
+          && request.resource.data.createdAt is int;
+        allow update: if false;
+        allow delete: if isCoupleMember(cid) && (
+          resource.data.actorUid == request.auth.uid
+          || allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data)
+        );
+      }
+
+      match /devices/{uid} {
+        allow get: if isCoupleMember(cid) && request.auth.uid == uid;
+        allow create, update: if isCoupleMember(cid)
+          && request.auth.uid == uid
+          && request.resource.data.keys().hasOnly(['uid', 'token', 'updatedAt', 'notificationsEnabled'])
+          && request.resource.data.uid == request.auth.uid
+          && request.resource.data.token is string
+          && request.resource.data.token.size() <= 4096
+          && request.resource.data.updatedAt is int
+          && (!('notificationsEnabled' in request.resource.data.keys()) || request.resource.data.notificationsEnabled is bool);
+        allow list: if false;
+        allow delete: if isCoupleMember(cid);
+      }
+    }
+  }
+}
