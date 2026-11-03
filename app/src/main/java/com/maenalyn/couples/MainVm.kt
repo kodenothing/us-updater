@@ -874,10 +874,13 @@ class MainVm(app: Application) : AndroidViewModel(app) {
 
     fun setMemoryAlbumCover(albumId: String, memory: Memory) {
         val c = code.value ?: return
-        val uid = Repo.currentUid() ?: run {
+        val uid = Repo.currentUid()
+
+        if (uid.isNullOrBlank()) {
             message.value = "Your account isn't ready. Please try again."
             return
         }
+
         trackWrite(FeatureRepo.setMemoryAlbumCover(c, albumId, memory.id, uid))
     }
 
