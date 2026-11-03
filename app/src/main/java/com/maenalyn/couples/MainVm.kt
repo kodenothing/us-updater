@@ -74,6 +74,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
     val events = MutableStateFlow<List<CalendarEvent>>(emptyList())
     val notes = MutableStateFlow<List<LoveNote>>(emptyList())
     val memories = MutableStateFlow<List<Memory>>(emptyList())
+    val memoryAlbums = MutableStateFlow<List<MemoryAlbum>>(emptyList())
     val memoryAlbumCovers = MutableStateFlow<Map<String, String>>(emptyMap())
     val activity = MutableStateFlow<List<ActivityEntry>>(emptyList())
     val dailyUs = MutableStateFlow(DailyUsState())
@@ -139,6 +140,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                     events.value = emptyList()
                     notes.value = emptyList()
                     memories.value = emptyList()
+                    memoryAlbums.value = emptyList()
                     memoryAlbumCovers.value = emptyMap()
                     activity.value = emptyList()
                     dailyWatchJob?.cancel()
@@ -269,6 +271,9 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                         } catch (error: Exception) {
                             message.value = error.message ?: "Couldn't load place activity. Check your connection."
                         }
+                    }
+                    launch {
+                        FeatureRepo.observeMemoryAlbums(c).collect { memoryAlbums.value = it }
                     }
                     launch {
                         FeatureRepo.observeMemoryAlbumCovers(c).collect { memoryAlbumCovers.value = it }
@@ -729,25 +734,108 @@ class MainVm(app: Application) : AndroidViewModel(app) {
     }
     fun deleteNote(note: LoveNote) { code.value?.let { trackWrite(FeatureRepo.deleteNote(it, note.id)) } }
 
-    fun addMemory(uri: Uri, caption: String) {
+    fun addMemories(uris: List<Uri>, albumId: String, albumName: String?, caption: String) {
+        val selectedUris = uris.distinct()
+        if (selectedUris.isEmpty()) return
         viewModelScope.launch {
-            val c = code.value ?: run { message.value = "Pair your account first."; return@launch }
-            val uid = Repo.currentUid() ?: run { message.value = "Your account isn't ready. Please try again."; return@launch }
-            if (caption.length > 280) { message.value = "Keep captions under 280 characters."; return@launch }
+            val c = code.value
+            if (c.isNullOrBlank()) {
+                message.value = "Pair your account first."
+                return@launch
+            }
+            val uid = Repo.currentUid()
+            if (uid.isNullOrBlank()) {
+                message.value = "Your account isn't ready. Please try again."
+                return@launch
+            }
+            if (caption.length > 280) {
+                message.value = "Keep captions under 280 characters."
+                return@launch
+            }
 
-            val id = UUID.randomUUID().toString()
-            val fileName = "$id.jpg"
-            val folder = File(getApplication<Application>().filesDir, "memories").apply { mkdirs() }
-            val file = File(folder, fileName)
             try {
-                compressMemoryPhoto(uri, file)
-                val createdAt = System.currentTimeMillis()
-                trackWrite(FeatureRepo.createMemoryPending(c, id, uid, caption, fileName, createdAt))
-                MemoryWorkScheduler.upload(getApplication(), c, id, uid, fileName, createdAt)
-                message.value = "Photo compressed and saved on this phone. It will sync when you're online."
+                if (!albumName.isNullOrBlank()) {
+                    FeatureRepo.createMemoryAlbum(c, albumId, albumName, uid).await()
+                }
+                var saved = 0
+                var failed = 0
+                selectedUris.forEach { uri ->
+                    val id = UUID.randomUUID().toString()
+                    val fileName = "$id.jpg"
+                    val folder = File(getApplication<Application>().filesDir, "memories").apply { mkdirs() }
+                    val file = File(folder, fileName)
+                    try {
+                        compressMemoryPhoto(uri, file)
+                        val createdAt = System.currentTimeMillis()
+                        FeatureRepo.createMemoryPending(c, id, uid, caption, fileName, albumId, createdAt).await()
+                        MemoryWorkScheduler.upload(getApplication(), c, id, uid, fileName, createdAt)
+                        saved++
+                    } catch (error: Exception) {
+                        file.delete()
+                        failed++
+                    }
+                }
+                message.value = when {
+                    saved == selectedUris.size -> "$saved photos added to the album. They'll sync when you're online."
+                    saved > 0 -> "$saved of ${selectedUris.size} photos were prepared. $failed couldn't be added."
+                    else -> "Couldn't prepare these photos. Please choose them again."
+                }
             } catch (error: Exception) {
-                file.delete()
-                message.value = error.message ?: "Couldn't prepare this photo. Please try another image."
+                message.value = error.message ?: "Couldn't create the album. Please try again."
+            }
+        }
+    }
+
+    fun renameMemoryAlbum(albumId: String, name: String) {
+        val safeName = name.trim()
+        if (safeName.isBlank()) {
+            message.value = "Enter an album name."
+            return
+        }
+        if (safeName.length > 48) {
+            message.value = "Keep album names to 48 characters or fewer."
+            return
+        }
+        val c = code.value ?: return
+        val uid = Repo.currentUid() ?: return
+        trackWrite(FeatureRepo.renameMemoryAlbum(c, albumId, safeName, uid))
+    }
+
+    fun moveMemoriesToAlbum(memoryIds: List<String>, albumId: String) {
+        val c = code.value ?: return
+        if (memoryIds.isEmpty()) return
+        viewModelScope.launch {
+            try {
+                memoryIds.distinct().chunked(450).forEach { batch ->
+                    FeatureRepo.moveMemories(c, batch, albumId).await()
+                }
+                message.value = "${memoryIds.distinct().size} photos moved to the selected album."
+            } catch (error: Exception) {
+                message.value = error.message ?: "Couldn't move the selected photos."
+            }
+        }
+    }
+
+    fun deleteMemories(selected: List<Memory>) {
+        val c = code.value ?: return
+        if (selected.isEmpty()) return
+        viewModelScope.launch {
+            var deleted = 0
+            try {
+                selected.distinctBy { it.id }.forEach { memory ->
+                    MemoryWorkScheduler.cancel(getApplication(), c, memory.id)
+                    FeatureRepo.deleteMemory(c, memory.id).await()
+                    latestMemories = latestMemories.filterNot { it.id == memory.id }
+                    olderMemories.removeAll { it.id == memory.id }
+                    memories.value = memories.value.filterNot { it.id == memory.id }
+                    File(File(getApplication<Application>().filesDir, "memories"), memory.fileName).delete()
+                    File(File(getApplication<Application>().filesDir, "memory_thumbnails"), "${memory.id}.jpg").delete()
+                    deleted++
+                }
+                message.value = "$deleted photos deleted."
+            } catch (error: Exception) {
+                message.value = if (deleted > 0) "$deleted photos deleted before an error occurred: ${error.message ?: "Please try again."}"
+                    else error.message ?: "Couldn't delete the selected photos."
             }
         }
     }
