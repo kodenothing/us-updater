@@ -755,7 +755,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
 
             try {
                 if (!albumName.isNullOrBlank()) {
-                    FeatureRepo.createMemoryAlbum(c, albumId, albumName, uid).await()
+                    trackWrite(FeatureRepo.createMemoryAlbum(c, albumId, albumName, uid))
                 }
                 var saved = 0
                 var failed = 0
@@ -767,7 +767,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                     try {
                         compressMemoryPhoto(uri, file)
                         val createdAt = System.currentTimeMillis()
-                        FeatureRepo.createMemoryPending(c, id, uid, caption, fileName, albumId, createdAt).await()
+                        trackWrite(FeatureRepo.createMemoryPending(c, id, uid, caption, fileName, albumId, createdAt))
                         MemoryWorkScheduler.upload(getApplication(), c, id, uid, fileName, createdAt)
                         saved++
                     } catch (error: Exception) {
