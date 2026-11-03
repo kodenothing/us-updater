@@ -21,6 +21,7 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -563,7 +564,7 @@ private fun MemoryPhotoTile(
 fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
     val context = LocalContext.current
     val albumCovers by vm.memoryAlbumCovers.collectAsState()
-    var captionUri by remember { mutableStateOf<Uri?>(null) }
+    val albumMetadata by vm.memoryAlbums.collectAsState()
     var search by remember { mutableStateOf("") }
     var favoritesOnly by remember { mutableStateOf(false) }
     var deleteTarget by remember { mutableStateOf<Memory?>(null) }
@@ -574,48 +575,81 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
     var photoIndex by remember { mutableIntStateOf(-1) }
     var photoViewerVisible by remember { mutableStateOf(false) }
     var photoForSave by remember { mutableStateOf<Memory?>(null) }
+
+    var showCreateAlbumDialog by remember { mutableStateOf(false) }
+    var newAlbumName by remember { mutableStateOf("") }
+    var renameAlbumId by remember { mutableStateOf<String?>(null) }
+    var renameAlbumName by remember { mutableStateOf("") }
+    var pendingAlbumId by remember { mutableStateOf<String?>(null) }
+    var pendingAlbumName by remember { mutableStateOf<String?>(null) }
+    var pendingPhotoUris by remember { mutableStateOf<List<Uri>>(emptyList()) }
+    var batchCaption by remember { mutableStateOf("") }
+    var showAddPhotosDialog by remember { mutableStateOf(false) }
+
+    var selectedPhotoIds by remember { mutableStateOf<Set<String>>(emptySet()) }
+    var showMoveDialog by remember { mutableStateOf(false) }
+    var moveTargetAlbumId by remember { mutableStateOf<String?>(null) }
+    var showDeleteSelectedDialog by remember { mutableStateOf(false) }
+
     val hasMore by vm.hasMoreMemories.collectAsState()
     val loadingMore by vm.loadingMoreMemories.collectAsState()
     val gridState = rememberLazyGridState()
-    val picker = rememberLauncherForActivityResult(ActivityResultContracts.PickVisualMedia()) { uri -> captionUri = uri }
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.PickMultipleVisualMedia(50)
+    ) { uris ->
+        if (uris.isNotEmpty() && !pendingAlbumId.isNullOrBlank()) {
+            pendingPhotoUris = uris
+            batchCaption = ""
+            showAddPhotosDialog = true
+        } else {
+            pendingAlbumId = null
+            pendingAlbumName = null
+        }
+    }
     val savePhoto = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("image/jpeg")) { uri ->
         if (uri != null) photoForSave?.let { vm.saveMemoryTo(uri, it) }
         photoForSave = null
     }
     val cs = MaterialTheme.colorScheme
 
-    val filtered = remember(memories, search, favoritesOnly) {
-        memories.filter { memory ->
-            (!favoritesOnly || memory.favorite) &&
-                (search.isBlank() || memory.caption.contains(search.trim(), ignoreCase = true))
-        }
+    fun launchPhotoPicker(albumId: String, albumName: String? = null) {
+        pendingAlbumId = albumId
+        pendingAlbumName = albumName
+        picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly))
     }
-    val allAlbums = remember(memories) {
+
+    fun clearPendingPhotos() {
+        pendingAlbumId = null
+        pendingAlbumName = null
+        pendingPhotoUris = emptyList()
+        batchCaption = ""
+        showAddPhotosDialog = false
+    }
+
+    val allAlbums = remember(memories, albumMetadata) {
+        val metadataById = albumMetadata.associateBy { it.id }
         memories.groupBy { memory ->
-            java.time.YearMonth.from(
-                java.time.Instant.ofEpochMilli(memory.createdAt)
-                    .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-            )
-        }.toSortedMap(compareByDescending { it }).map { (month, photos) ->
+            memory.albumId.ifBlank {
+                java.time.YearMonth.from(
+                    java.time.Instant.ofEpochMilli(memory.createdAt)
+                        .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                ).toString()
+            }
+        }.map { (id, photos) ->
+            val fallbackTitle = runCatching {
+                java.time.YearMonth.parse(id).format(DateTimeFormatter.ofPattern("MMMM yyyy"))
+            }.getOrDefault("Shared album")
             MemoryAlbumEntry(
-                id = month.toString(),
-                title = month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
+                id = id,
+                title = metadataById[id]?.name ?: fallbackTitle,
                 photos = photos.sortedByDescending { it.createdAt }
             )
-        }
+        }.sortedByDescending { it.photos.firstOrNull()?.createdAt ?: 0L }
     }
-    val visibleAlbums = remember(filtered) {
-        filtered.groupBy { memory ->
-            java.time.YearMonth.from(
-                java.time.Instant.ofEpochMilli(memory.createdAt)
-                    .atZone(java.time.ZoneId.systemDefault()).toLocalDate()
-            )
-        }.toSortedMap(compareByDescending { it }).map { (month, photos) ->
-            MemoryAlbumEntry(
-                id = month.toString(),
-                title = month.format(DateTimeFormatter.ofPattern("MMMM yyyy")),
-                photos = photos.sortedByDescending { it.createdAt }
-            )
+    val visibleAlbums = remember(allAlbums, search, favoritesOnly) {
+        allAlbums.filter { album ->
+            (search.isBlank() || album.title.contains(search.trim(), ignoreCase = true)) &&
+                (!favoritesOnly || album.photos.any { it.favorite })
         }
     }
     val activeAlbum = allAlbums.firstOrNull { it.id == selectedAlbumId }
@@ -623,9 +657,11 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
     val viewerAlbum = allAlbums.firstOrNull { it.id == viewerAlbumId }
     val viewerPhotos = viewerAlbum?.photos.orEmpty()
     val currentPhoto = viewerPhotos.getOrNull(photoIndex)
+    val selectedPhotos = activeAlbum?.photos?.filter { it.id in selectedPhotoIds }.orEmpty()
+    val destinationAlbums = allAlbums.filter { it.id != selectedAlbumId }
 
     val backgroundBlur by animateDpAsState(
-        targetValue = if (albumVisible || coverChooserAlbumId != null || photoViewerVisible) 12.dp else 0.dp,
+        targetValue = if (albumVisible || coverChooserAlbumId != null || photoViewerVisible || showCreateAlbumDialog || renameAlbumId != null || showAddPhotosDialog || showMoveDialog || showDeleteSelectedDialog) 12.dp else 0.dp,
         animationSpec = tween(260, easing = FastOutSlowInEasing),
         label = "memory background blur"
     )
@@ -634,6 +670,7 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
         if (!albumVisible && selectedAlbumId != null) {
             delay(280)
             selectedAlbumId = null
+            selectedPhotoIds = emptySet()
         }
     }
     LaunchedEffect(photoViewerVisible, photoIndex) {
@@ -652,8 +689,8 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
                 val mb = knownBytes / (1024f * 1024f)
                 Text("${"%.1f".format(mb)} MB · ${memories.size} photos loaded", color = cs.onSurfaceVariant, fontSize = 11.sp)
             }
-            FilledIconButton(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) {
-                Icon(Icons.Filled.CameraAlt, "Add a photo")
+            FilledIconButton(onClick = { showCreateAlbumDialog = true }) {
+                Icon(Icons.Filled.Add, "Create album")
             }
         }
         OutlinedTextField(
@@ -662,24 +699,31 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
             modifier = Modifier.fillMaxWidth().padding(top = 10.dp),
             singleLine = true,
             leadingIcon = { Icon(Icons.Filled.Search, null) },
-            placeholder = { Text("Search captions") },
+            placeholder = { Text("Search album names") },
             shape = RoundedCornerShape(18.dp)
         )
         Row(Modifier.padding(top = 8.dp), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
             FilterChip(selected = !favoritesOnly, onClick = { favoritesOnly = false }, label = { Text("All albums") })
-            FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = true }, label = { Text("Favorite photos") }, leadingIcon = { Icon(Icons.Filled.Star, null, Modifier.size(16.dp)) })
+            FilterChip(selected = favoritesOnly, onClick = { favoritesOnly = true }, label = { Text("Albums with favorites") }, leadingIcon = { Icon(Icons.Filled.Star, null, Modifier.size(16.dp)) })
         }
 
         if (visibleAlbums.isEmpty()) {
             Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
                 Icon(Icons.Filled.Image, null, tint = cs.primary, modifier = Modifier.size(44.dp))
                 Spacer(Modifier.height(10.dp))
-                Text(if (memories.isEmpty()) "Your story in snapshots" else "No memories found", style = MaterialTheme.typography.titleMedium)
+                Text(
+                    when {
+                        memories.isEmpty() -> "Your story in snapshots"
+                        search.isNotBlank() -> "No albums match that name"
+                        else -> "No albums found"
+                    },
+                    style = MaterialTheme.typography.titleMedium
+                )
                 if (memories.isEmpty()) {
-                    Button(onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) }) { Text("Add your first memory") }
+                    Button(onClick = { showCreateAlbumDialog = true }) { Text("Create your first album") }
                 } else if (hasMore) {
                     OutlinedButton(onClick = { vm.loadMoreMemories() }, enabled = !loadingMore) {
-                        Text(if (loadingMore) "Loading older memories…" else "Search older memories")
+                        Text(if (loadingMore) "Loading older memories…" else "Load older memories")
                     }
                 }
             }
@@ -692,15 +736,17 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 gridItems(visibleAlbums, key = { it.id }) { album ->
-                    val fullAlbum = allAlbums.firstOrNull { it.id == album.id } ?: album
                     val selectedCoverId = albumCovers[album.id]
-                    val cover = fullAlbum.photos.firstOrNull { it.id == selectedCoverId } ?: fullAlbum.photos.first()
+                    val cover = album.photos.firstOrNull { it.id == selectedCoverId } ?: album.photos.first()
                     MemoryAlbumCard(
                         album = album,
                         cover = cover,
                         vm = vm,
                         onOpen = { selectedAlbumId = album.id; albumVisible = true },
-                        onChangeCover = { coverChooserAlbumId = album.id }
+                        onRename = {
+                            renameAlbumId = album.id
+                            renameAlbumName = album.title
+                        }
                     )
                 }
                 item(span = { GridItemSpan(maxLineSpan) }) {
@@ -721,7 +767,7 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
 
     if (selectedAlbumId != null && activeAlbum != null) {
         Dialog(
-            onDismissRequest = { albumVisible = false },
+            onDismissRequest = { albumVisible = false; selectedPhotoIds = emptySet() },
             properties = DialogProperties(usePlatformDefaultWidth = false)
         ) {
             val dialogView = LocalView.current
@@ -742,20 +788,48 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     Row(
-                        Modifier.fillMaxWidth().padding(start = 8.dp, end = 12.dp, top = 10.dp),
+                        Modifier.fillMaxWidth().padding(start = 8.dp, end = 8.dp, top = 10.dp),
                         verticalAlignment = Alignment.CenterVertically
                     ) {
-                        IconButton(onClick = { albumVisible = false }) {
+                        IconButton(onClick = { albumVisible = false; selectedPhotoIds = emptySet() }) {
                             Icon(Icons.Filled.ChevronLeft, "Close album")
                         }
                         Column(Modifier.weight(1f)) {
                             Text(activeAlbum.title, style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.SemiBold)
                             Text("${activeAlbum.photos.size} photos", color = cs.onSurfaceVariant, fontSize = 12.sp)
                         }
+                        IconButton(onClick = {
+                            renameAlbumId = activeAlbum.id
+                            renameAlbumName = activeAlbum.title
+                        }) {
+                            Icon(Icons.Filled.Edit, "Rename album")
+                        }
                         IconButton(onClick = { coverChooserAlbumId = activeAlbum.id }) {
-                            Icon(Icons.Filled.Edit, "Change album cover")
+                            Icon(Icons.Filled.Image, "Change album cover")
+                        }
+                        IconButton(onClick = { launchPhotoPicker(activeAlbum.id) }) {
+                            Icon(Icons.Filled.Add, "Add photos")
                         }
                     }
+
+                    if (selectedPhotoIds.isNotEmpty()) {
+                        Row(
+                            Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 2.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp)
+                        ) {
+                            Text("${selectedPhotoIds.size} selected", Modifier.weight(1f), fontWeight = FontWeight.SemiBold, fontSize = 13.sp)
+                            TextButton(onClick = {
+                                moveTargetAlbumId = null
+                                showMoveDialog = true
+                            }) { Text("Move") }
+                            TextButton(onClick = { showDeleteSelectedDialog = true }) {
+                                Text("Delete", color = cs.error)
+                            }
+                            TextButton(onClick = { selectedPhotoIds = emptySet() }) { Text("Cancel") }
+                        }
+                    }
+
                     LazyVerticalGrid(
                         columns = GridCells.Fixed(3),
                         modifier = Modifier.fillMaxWidth().weight(1f),
@@ -764,13 +838,27 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
                         verticalArrangement = Arrangement.spacedBy(7.dp)
                     ) {
                         gridItems(activeAlbum.photos, key = { it.id }) { memory ->
-                            MemoryPhotoTile(memory, vm) {
-                                if (memory.status == "ready" || memory.photoUrl.isNotBlank()) {
-                                    viewerAlbumId = activeAlbum.id
-                                    photoIndex = activeAlbum.photos.indexOfFirst { it.id == memory.id }
-                                    photoViewerVisible = true
+                            MemoryPhotoTile(
+                                memory = memory,
+                                vm = vm,
+                                selected = memory.id in selectedPhotoIds,
+                                onLongClick = {
+                                    selectedPhotoIds = selectedPhotoIds + memory.id
+                                },
+                                onClick = {
+                                    if (selectedPhotoIds.isNotEmpty()) {
+                                        selectedPhotoIds = if (memory.id in selectedPhotoIds) {
+                                            selectedPhotoIds - memory.id
+                                        } else {
+                                            selectedPhotoIds + memory.id
+                                        }
+                                    } else if (memory.status == "ready" || memory.photoUrl.isNotBlank()) {
+                                        viewerAlbumId = activeAlbum.id
+                                        photoIndex = activeAlbum.photos.indexOfFirst { it.id == memory.id }
+                                        photoViewerVisible = true
+                                    }
                                 }
-                            }
+                            )
                         }
                         item(span = { GridItemSpan(maxLineSpan) }) {
                             if (hasMore) {
@@ -924,17 +1012,155 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
         )
     }
 
-    captionUri?.let { uri ->
-        var caption by remember(uri) { mutableStateOf("") }
+    if (showCreateAlbumDialog) {
         AlertDialog(
-            onDismissRequest = { captionUri = null },
-            title = { Text("Add a caption") },
-            text = { OutlinedTextField(caption, { caption = it.take(280) }, label = { Text("What do you want to remember?") }, modifier = Modifier.fillMaxWidth(), maxLines = 3) },
-            confirmButton = { TextButton(onClick = { vm.addMemory(uri, caption); captionUri = null }) { Text("Save memory") } },
-            dismissButton = { TextButton(onClick = { captionUri = null }) { Text("Cancel") } }
+            onDismissRequest = { showCreateAlbumDialog = false; newAlbumName = "" },
+            title = { Text("Create an album") },
+            text = {
+                OutlinedTextField(
+                    value = newAlbumName,
+                    onValueChange = { newAlbumName = it.take(48) },
+                    singleLine = true,
+                    label = { Text("Album name") },
+                    placeholder = { Text("e.g. Our first trip") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = newAlbumName.trim().isNotEmpty(),
+                    onClick = {
+                        val title = newAlbumName.trim()
+                        val id = java.util.UUID.randomUUID().toString()
+                        showCreateAlbumDialog = false
+                        newAlbumName = ""
+                        launchPhotoPicker(id, title)
+                    }
+                ) { Text("Choose photos") }
+            },
+            dismissButton = { TextButton(onClick = { showCreateAlbumDialog = false; newAlbumName = "" }) { Text("Cancel") } }
+        )
+    }
+
+    if (renameAlbumId != null) {
+        AlertDialog(
+            onDismissRequest = { renameAlbumId = null },
+            title = { Text("Rename album") },
+            text = {
+                OutlinedTextField(
+                    value = renameAlbumName,
+                    onValueChange = { renameAlbumName = it.take(48) },
+                    singleLine = true,
+                    label = { Text("Album name") },
+                    modifier = Modifier.fillMaxWidth()
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = renameAlbumName.trim().isNotEmpty(),
+                    onClick = {
+                        vm.renameMemoryAlbum(renameAlbumId!!, renameAlbumName)
+                        renameAlbumId = null
+                    }
+                ) { Text("Save name") }
+            },
+            dismissButton = { TextButton(onClick = { renameAlbumId = null }) { Text("Cancel") } }
+        )
+    }
+
+    if (showAddPhotosDialog) {
+        AlertDialog(
+            onDismissRequest = { clearPendingPhotos() },
+            title = { Text("Add ${pendingPhotoUris.size} photos") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    val albumTitle = pendingAlbumName
+                        ?: allAlbums.firstOrNull { it.id == pendingAlbumId }?.title
+                        ?: "selected album"
+                    Text("Adding photos to $albumTitle. You can add one optional caption to all selected photos.")
+                    OutlinedTextField(
+                        value = batchCaption,
+                        onValueChange = { batchCaption = it.take(280) },
+                        modifier = Modifier.fillMaxWidth(),
+                        label = { Text("Shared caption (optional)") },
+                        maxLines = 3
+                    )
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val id = pendingAlbumId
+                        if (!id.isNullOrBlank()) {
+                            vm.addMemories(pendingPhotoUris, id, pendingAlbumName, batchCaption.trim())
+                        }
+                        clearPendingPhotos()
+                    }
+                ) { Text("Add photos") }
+            },
+            dismissButton = { TextButton(onClick = { clearPendingPhotos() }) { Text("Cancel") } }
+        )
+    }
+
+    if (showMoveDialog && activeAlbum != null) {
+        AlertDialog(
+            onDismissRequest = { showMoveDialog = false; moveTargetAlbumId = null },
+            title = { Text("Move ${selectedPhotos.size} photos") },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                    if (destinationAlbums.isEmpty()) {
+                        Text("Create another album before moving these photos.")
+                    } else {
+                        Text("Choose the destination album.")
+                        destinationAlbums.forEach { album ->
+                            Row(
+                                Modifier.fillMaxWidth().clickable { moveTargetAlbumId = album.id }.padding(vertical = 4.dp),
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                RadioButton(
+                                    selected = moveTargetAlbumId == album.id,
+                                    onClick = { moveTargetAlbumId = album.id }
+                                )
+                                Text(album.title)
+                            }
+                        }
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = moveTargetAlbumId != null && selectedPhotos.isNotEmpty(),
+                    onClick = {
+                        moveTargetAlbumId?.let { vm.moveMemoriesToAlbum(selectedPhotos.map { photo -> photo.id }, it) }
+                        selectedPhotoIds = emptySet()
+                        showMoveDialog = false
+                        moveTargetAlbumId = null
+                    }
+                ) { Text("Move photos") }
+            },
+            dismissButton = { TextButton(onClick = { showMoveDialog = false; moveTargetAlbumId = null }) { Text("Cancel") } }
+        )
+    }
+
+    if (showDeleteSelectedDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteSelectedDialog = false },
+            title = { Text("Delete ${selectedPhotos.size} photos?") },
+            text = { Text("These photos will be permanently removed from shared memories for both of you.") },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        vm.deleteMemories(selectedPhotos)
+                        selectedPhotoIds = emptySet()
+                        showDeleteSelectedDialog = false
+                    }
+                ) { Text("Delete photos", color = cs.error) }
+            },
+            dismissButton = { TextButton(onClick = { showDeleteSelectedDialog = false }) { Text("Cancel") } }
         )
     }
 }
+
 
 
 @Composable
