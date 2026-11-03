@@ -489,7 +489,7 @@ private fun MemoryAlbumCard(
     cover: Memory,
     vm: MainVm,
     onOpen: () -> Unit,
-    onChangeCover: () -> Unit
+    onRename: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
     Column(
@@ -511,11 +511,11 @@ private fun MemoryAlbumCard(
                 fontWeight = FontWeight.Medium
             )
             IconButton(
-                onClick = onChangeCover,
+                onClick = onRename,
                 modifier = Modifier.align(Alignment.TopEnd).padding(8.dp)
                     .background(Color.Black.copy(alpha = 0.45f), CircleShape).size(36.dp)
             ) {
-                Icon(Icons.Filled.Edit, "Change album cover", tint = Color.White, modifier = Modifier.size(18.dp))
+                Icon(Icons.Filled.Edit, "Rename album", tint = Color.White, modifier = Modifier.size(18.dp))
             }
         }
         Text(
@@ -532,12 +532,14 @@ private fun MemoryAlbumCard(
 private fun MemoryPhotoTile(
     memory: Memory,
     vm: MainVm,
+    selected: Boolean = false,
+    onLongClick: () -> Unit = {},
     onClick: () -> Unit
 ) {
     Column(
         Modifier.clip(RoundedCornerShape(14.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f))
-            .clickable(onClick = onClick)
+            .combinedClickable(onClick = onClick, onLongClick = onLongClick)
     ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(14.dp))) {
             MemoryAlbumCover(memory, vm, Modifier.fillMaxSize())
@@ -548,6 +550,20 @@ private fun MemoryPhotoTile(
                     tint = Color(0xFFFFD166),
                     modifier = Modifier.align(Alignment.TopEnd).padding(7.dp).size(18.dp)
                 )
+            }
+            if (selected) {
+                Box(
+                    Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.34f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Text(
+                        "✓",
+                        color = Color.White,
+                        fontSize = 25.sp,
+                        fontWeight = FontWeight.Bold,
+                        modifier = Modifier.background(MaterialTheme.colorScheme.primary, CircleShape).padding(horizontal = 10.dp, vertical = 5.dp)
+                    )
+                }
             }
         }
         Text(
