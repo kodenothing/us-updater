@@ -33,7 +33,16 @@ data class Memory(
     val createdBy: String,
     val createdAt: Long,
     val favorite: Boolean = false,
-    val sizeBytes: Long = 0L
+    val sizeBytes: Long = 0L,
+    val albumId: String = ""
+)
+
+data class MemoryAlbum(
+    val id: String,
+    val name: String,
+    val createdBy: String,
+    val createdAt: Long,
+    val updatedAt: Long
 )
 
 data class ActivityEntry(
