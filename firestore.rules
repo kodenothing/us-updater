@@ -213,7 +213,7 @@ service cloud.firestore {
         allow read: if isCoupleMember(cid);
         allow create: if isCoupleMember(cid)
           && request.resource.data.keys().hasAll([
-            'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt', 'albumId'
+            'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt'
           ])
           && request.resource.data.keys().hasOnly([
             'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt', 'albumId', 'favorite', 'sizeBytes', 'thumbnailBytes', 'originalCreatedBy'
@@ -228,9 +228,11 @@ service cloud.firestore {
           && request.resource.data.status == 'pending'
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.createdAt is int
-          && request.resource.data.albumId is string
-          && request.resource.data.albumId.size() > 0
-          && request.resource.data.albumId.size() <= 128
+          && (!('albumId' in request.resource.data.keys()) || (
+            request.resource.data.albumId is string
+            && request.resource.data.albumId.size() > 0
+            && request.resource.data.albumId.size() <= 128
+          ))
           && (!('favorite' in request.resource.data.keys()) || request.resource.data.favorite is bool)
           && (!('sizeBytes' in request.resource.data.keys()) || (request.resource.data.sizeBytes is int && request.resource.data.sizeBytes <= 716800))
           && (!('thumbnailBytes' in request.resource.data.keys()) || (request.resource.data.thumbnailBytes is int && request.resource.data.thumbnailBytes <= 81920))
