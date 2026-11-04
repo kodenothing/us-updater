@@ -296,11 +296,11 @@ object Repo {
                 throw PairingException("Both partners must approve permanent deletion first.")
             }
 
-            val collections = listOf("items", "events", "notes", "memories", "memoryAlbumCovers", "activity", "daily")
+            val collections = listOf("items", "events", "notes", "memories", "memoryAlbumCovers", "activity", "daily", "livePhotoWidget", "livePhotoWidgetPhotos")
             for (name in collections) {
                 val docs = couple(code).collection(name).get(Source.SERVER).await().documents
                 docs.forEach { doc ->
-                    if (name == "memories") {
+                    if (name == "memories" || name == "livePhotoWidgetPhotos") {
                         doc.reference.collection("content").document("image").delete().await()
                         doc.reference.collection("content").document("thumbnail").delete().await()
                     }
