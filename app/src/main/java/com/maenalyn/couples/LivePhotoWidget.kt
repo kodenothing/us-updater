@@ -292,6 +292,7 @@ object LivePhotoWidgetUploadScheduler {
                 )
             )
             .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 20, TimeUnit.SECONDS)
+            .addTag("live-photo-widget")
             .build()
         WorkManager.getInstance(context).enqueueUniqueWork(
             "live-photo-upload-$code-$id",
@@ -510,6 +511,7 @@ class LivePhotoWidgetDeleteWorker(context: Context, params: WorkerParameters) : 
                 )
                 .setInputData(workDataOf("code" to code, "photoId" to photoId))
                 .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .addTag("live-photo-widget")
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "live-photo-delete-$code-$photoId",
@@ -584,6 +586,7 @@ class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : Co
                     Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
                 )
                 .setInputData(workDataOf("code" to code))
+                .addTag("live-photo-widget")
                 .build()
             WorkManager.getInstance(context).enqueueUniqueWork(
                 "live-photo-widget-sync-$code",
@@ -610,6 +613,13 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
     }
 
     companion object {
+        fun clearLocalCache(context: Context) {
+            WorkManager.getInstance(context).cancelAllWorkByTag("live-photo-widget")
+            LivePhotoWidgetFiles.root(context).deleteRecursively()
+            LivePhotoWidgetFiles.preferences(context).edit().remove("livePhotoWidgetCachedId").apply()
+            updateAll(context, scheduleSync = false)
+        }
+
         fun updateAll(context: Context, scheduleSync: Boolean = true) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, LivePhotoWidgetProvider::class.java)
