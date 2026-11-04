@@ -172,6 +172,17 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                     }
                     registerPushToken(c)
                     launch {
+                        try {
+                            LivePhotoWidgetRepo.observeCurrent(c).collectLatest {
+                                LivePhotoWidgetSyncWorker.enqueue(getApplication(), c)
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            message.value = error.message ?: "Live Photo Widget will refresh when the connection returns."
+                        }
+                    }
+                    launch {
                         coupleRetryRequests.collectLatest {
                             coupleLoadError.value = null
                             val uid = authUid.value
