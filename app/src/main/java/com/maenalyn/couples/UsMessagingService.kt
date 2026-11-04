@@ -20,6 +20,11 @@ class UsMessagingService : FirebaseMessagingService() {
 
     override fun onMessageReceived(message: RemoteMessage) {
         super.onMessageReceived(message)
+        if (message.data["type"] == "live_photo_widget") {
+            val code = message.data["coupleId"]
+            if (!code.isNullOrBlank()) LivePhotoWidgetSyncWorker.enqueue(this, code)
+            return
+        }
         val title = message.data["title"] ?: "A little update from your person"
         val body = message.data["body"] ?: "Open Us to see what's new."
         val key = message.data["notificationId"]
