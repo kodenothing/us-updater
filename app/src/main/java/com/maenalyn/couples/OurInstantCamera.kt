@@ -328,6 +328,29 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
                 }
             }
 
+            if (hasCameraPermission) {
+                IconButton(
+                    onClick = {
+                        useFrontCamera = !useFrontCamera
+                        cameraError = null
+                        feedback = null
+                    },
+                    enabled = !working,
+                    modifier = Modifier
+                        .align(Alignment.CenterEnd)
+                        .padding(end = 12.dp)
+                        .size(52.dp)
+                        .background(Color.Black.copy(alpha = 0.42f), CircleShape)
+                ) {
+                    Icon(
+                        Icons.Filled.Cameraswitch,
+                        contentDescription = if (useFrontCamera) "Switch to back camera" else "Switch to front camera",
+                        tint = white,
+                        modifier = Modifier.size(27.dp)
+                    )
+                }
+            }
+
             if (working) {
                 Box(
                     modifier = Modifier.fillMaxSize().background(Color.Black.copy(alpha = 0.38f)),
@@ -369,27 +392,6 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
                         modifier = Modifier.size(31.dp)
                     )
                 }
-            }
-
-            IconButton(
-                onClick = {
-                    useFrontCamera = !useFrontCamera
-                    cameraError = null
-                    feedback = null
-                },
-                enabled = hasCameraPermission && !working,
-                modifier = Modifier
-                    .align(Alignment.CenterEnd)
-                    .padding(end = 12.dp)
-                    .size(52.dp)
-                    .background(Color.White.copy(alpha = 0.14f), CircleShape)
-            ) {
-                Icon(
-                    Icons.Filled.Cameraswitch,
-                    contentDescription = if (useFrontCamera) "Switch to back camera" else "Switch to front camera",
-                    tint = white,
-                    modifier = Modifier.size(27.dp)
-                )
             }
         }
 
