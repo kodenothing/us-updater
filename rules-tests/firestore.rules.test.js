@@ -15,6 +15,7 @@ const {
   getDoc,
   setDoc,
   updateDoc,
+  writeBatch,
   serverTimestamp
 } = require('firebase/firestore');
 
@@ -393,4 +394,70 @@ test('place transition events require a real shared place and truthful actor', a
     eventKey: 'bad-transition', actorUid: MEMBER_A, placeId: 'school',
     placeName: 'School', transition: 'visited', createdAt: 203
   }));
+});
+
+
+test('Live Photo Widget photos use Firestore Blobs and only the active pointer protects deletion', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const outsiderDb = environment.authenticatedContext(OUTSIDER).firestore();
+
+  const photo = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one');
+  const image = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one', 'content', 'image');
+  const thumbnail = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one', 'content', 'thumbnail');
+  const current = ref(aDb, couplePath, 'livePhotoWidget', 'current');
+
+  await assertSucceeds(setDoc(photo, {
+    createdBy: MEMBER_A,
+    createdAt: 100,
+    status: 'pending',
+    sizeBytes: 0,
+    thumbnailBytes: 0
+  }));
+  await assertSucceeds(setDoc(image, {
+    image: Bytes.fromUint8Array(new Uint8Array([1, 2, 3])),
+    contentType: 'image/jpeg',
+    createdBy: MEMBER_A,
+    createdAt: 100
+  }));
+  await assertSucceeds(setDoc(thumbnail, {
+    image: Bytes.fromUint8Array(new Uint8Array([4, 5, 6])),
+    contentType: 'image/jpeg',
+    createdBy: MEMBER_A,
+    createdAt: 100
+  }));
+
+  const publish = writeBatch(aDb);
+  publish.update(photo, {
+    status: 'ready',
+    sizeBytes: 3,
+    thumbnailBytes: 3,
+    previousPhotoId: ''
+  });
+  publish.set(current, {
+    activePhotoId: 'photo-one',
+    updatedBy: MEMBER_A,
+    updatedAt: 101
+  });
+  await assertSucceeds(publish.commit());
+
+  await assertSucceeds(getDoc(ref(bDb, couplePath, 'livePhotoWidget', 'current')));
+  await assertSucceeds(getDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one', 'content', 'image')));
+  await assertFails(getDoc(ref(outsiderDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one')));
+
+  await assertFails(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one', 'content', 'image')));
+  await assertFails(updateDoc(ref(bDb, couplePath, 'livePhotoWidget', 'current'), {
+    activePhotoId: 'missing-photo',
+    updatedBy: MEMBER_B,
+    updatedAt: 102
+  }));
+
+  await assertSucceeds(updateDoc(ref(bDb, couplePath, 'livePhotoWidget', 'current'), {
+    activePhotoId: '',
+    updatedBy: MEMBER_B,
+    updatedAt: 103
+  }));
+  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one', 'content', 'image')));
+  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one', 'content', 'thumbnail')));
+  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one')));
 });
