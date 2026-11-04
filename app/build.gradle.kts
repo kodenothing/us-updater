@@ -54,6 +54,12 @@ android {
 }
 
 dependencies {
+    modules {
+        module("com.google.guava:listenablefuture") {
+            replacedBy("com.google.guava:guava", "ListenableFuture is included in Guava")
+        }
+    }
+
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.animation:animation")
@@ -69,7 +75,7 @@ dependencies {
     implementation("androidx.camera:camera-lifecycle:1.3.4")
     implementation("androidx.camera:camera-view:1.3.4")
     implementation("androidx.exifinterface:exifinterface:1.4.2")
-    compileOnly("com.google.guava:listenablefuture:1.0")
+
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
