@@ -8,4 +8,4 @@
     android:initialLayout="@layout/widget_live_photo"
     android:resizeMode="horizontal|vertical"
     android:widgetCategory="home_screen"
-    android:description="@string/live_photo_widget_description" />
+    android:description="@string/our_instant_widget_description" />
