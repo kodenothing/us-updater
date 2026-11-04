@@ -3,6 +3,8 @@ package com.maenalyn.couples
 import android.Manifest
 import android.app.Activity
 import android.content.Intent
+import android.content.Context
+import android.content.ContextWrapper
 import android.content.pm.PackageManager
 import android.net.Uri
 import android.provider.Settings
@@ -96,7 +98,7 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
     ) { granted ->
         hasCameraPermission = granted
         permissionPermanentlyDenied = !granted &&
-            (context as? Activity)?.let {
+            context.findActivity()?.let {
                 !ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
             } == true
         permissionFeedback = if (granted) null else
@@ -116,9 +118,14 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
     DisposableEffect(lifecycleOwner, context) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_RESUME) {
-                hasCameraPermission =
-                    ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) ==
-                        PackageManager.PERMISSION_GRANTED
+                val granted = ContextCompat.checkSelfPermission(
+                    context, Manifest.permission.CAMERA
+                ) == PackageManager.PERMISSION_GRANTED
+                hasCameraPermission = granted
+                if (granted) {
+                    permissionPermanentlyDenied = false
+                    permissionFeedback = null
+                }
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
@@ -469,4 +476,10 @@ private fun OurInstantCameraPreview(
             }
         }
     }
+}
+
+private tailrec fun Context.findActivity(): Activity? = when (this) {
+    is Activity -> this
+    is ContextWrapper -> baseContext.findActivity()
+    else -> null
 }
