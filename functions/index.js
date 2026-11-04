@@ -1,5 +1,5 @@
 const admin = require('firebase-admin');
-const { onDocumentCreated, onDocumentWritten } = require('firebase-functions/v2/firestore');
+const { onDocumentCreated } = require('firebase-functions/v2/firestore');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -58,45 +58,5 @@ exports.notifyActivityCreated = onDocumentCreated(
       }
       console.error('Partner activity notification failed', error);
     }
-  }
-);
-
-
-// Refresh every registered home-screen Live Photo Widget after its shared
-// Firestore pointer changes. This is a data-only message, not a user alert.
-exports.syncLivePhotoWidget = onDocumentWritten(
-  'couples/{coupleId}/livePhotoWidget/current',
-  async (event) => {
-    const coupleId = event.params.coupleId;
-    const coupleSnap = await db.doc(`couples/${coupleId}`).get();
-    if (!coupleSnap.exists) return;
-
-    const members = coupleSnap.get('members') || [];
-    const sends = await Promise.all(members.map(async (uid) => {
-      const deviceRef = db.doc(`couples/${coupleId}/devices/${uid}`);
-      const deviceSnap = await deviceRef.get();
-      const token = deviceSnap.exists ? deviceSnap.get('token') : null;
-      if (!token) return;
-
-      try {
-        await admin.messaging().send({
-          token,
-          data: {
-            type: 'live_photo_widget',
-            coupleId,
-            widgetUpdatedAt: String(Date.now())
-          },
-          android: { priority: 'high' }
-        });
-      } catch (error) {
-        if (error.code === 'messaging/registration-token-not-registered' ||
-            error.code === 'messaging/invalid-registration-token') {
-          await deviceRef.delete().catch(() => {});
-          return;
-        }
-        console.error('Live Photo Widget refresh failed', error);
-      }
-    }));
-    return sends;
   }
 );
