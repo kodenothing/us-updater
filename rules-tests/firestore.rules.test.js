@@ -461,3 +461,25 @@ test('Live Photo Widget photos use Firestore Blobs and only the active pointer p
   await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one', 'content', 'thumbnail')));
   await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'photo-one')));
 });
+
+
+test('Live Photo Widget state is removed only after both partners approve permanent deletion', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const state = ref(aDb, couplePath, 'livePhotoWidget', 'current');
+
+  await assertSucceeds(setDoc(state, {
+    activePhotoId: '',
+    updatedBy: MEMBER_A,
+    updatedAt: 100
+  }));
+  await assertFails(deleteDoc(state));
+  await assertSucceeds(updateDoc(ref(aDb, couplePath), {
+    [`deleteApprovals.${MEMBER_A}`]: true
+  }));
+  await assertFails(deleteDoc(state));
+  await assertSucceeds(updateDoc(ref(bDb, couplePath), {
+    [`deleteApprovals.${MEMBER_B}`]: true
+  }));
+  await assertSucceeds(deleteDoc(state));
+});
