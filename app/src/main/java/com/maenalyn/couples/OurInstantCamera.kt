@@ -10,6 +10,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
+import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -52,6 +53,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -64,7 +66,6 @@ import androidx.core.content.FileProvider
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
-import androidx.work.WorkManager
 import java.io.File
 import java.util.UUID
 import kotlinx.coroutines.launch
@@ -174,7 +175,6 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
         working = true
         feedback = null
         try {
-            capture.targetRotation = context.display?.rotation ?: capture.targetRotation
             capture.takePicture(
                 options,
                 ContextCompat.getMainExecutor(context),
@@ -409,7 +409,7 @@ private fun OurInstantCameraPreview(
         }
     }
     val providerFuture = remember(context) { ProcessCameraProvider.getInstance(context) }
-    val cameraProvider by produceState<ProcessCameraProvider?>(initialValue = null, providerFuture) {
+    val cameraProvider by produceState<ProcessCameraProvider?>(null, providerFuture) {
         providerFuture.addListener(
             {
                 try {
@@ -440,6 +440,7 @@ private fun OurInstantCameraPreview(
                 .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                 .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
                 .build()
+            capture.targetRotation = previewView.display?.rotation ?: android.view.Surface.ROTATION_0
             try {
                 provider.unbindAll()
                 provider.bindToLifecycle(
