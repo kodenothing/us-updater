@@ -21,8 +21,8 @@ android {
         applicationId = "com.maenalyn.couples"
         minSdk = 26
         targetSdk = 34
-        versionCode = 19
-        versionName = "2.4.6"
+        versionCode = 20
+        versionName = "2.4.7"
     }
 
     signingConfigs {
