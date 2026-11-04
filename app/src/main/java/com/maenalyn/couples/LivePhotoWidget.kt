@@ -206,7 +206,7 @@ object LivePhotoWidgetRepo {
         }.await()
     }
 
-    suspend fun removeCurrentPhoto(code: String, uid: String): String? {
+    suspend fun removeCurrentPhoto(context: Context, code: String, uid: String): String? {
         val stateRef = state(code)
         val previousId = db.runTransaction { transaction ->
             val snapshot = transaction.get(stateRef)
@@ -221,7 +221,13 @@ object LivePhotoWidgetRepo {
             )
             oldId.takeIf { it.isNotBlank() }
         }.await()
-        if (previousId != null) deletePhoto(code, previousId)
+        if (previousId != null) {
+            try {
+                deletePhoto(code, previousId)
+            } catch (_: Exception) {
+                LivePhotoWidgetDeleteWorker.enqueue(context, code, previousId)
+            }
+        }
         return previousId
     }
 
@@ -261,7 +267,13 @@ object LivePhotoWidgetUploadScheduler {
     suspend fun enqueueFromUri(context: Context, code: String, uid: String, uri: Uri): String {
         val id = UUID.randomUUID().toString()
         val file = File(LivePhotoWidgetFiles.uploads(context).apply { mkdirs() }, "$id.jpg")
-        compressPhoto(context, uri, file)
+        try {
+            compressPhoto(context, uri, file)
+        } finally {
+            if (uri.authority == "${context.packageName}.fileprovider") {
+                runCatching { context.contentResolver.delete(uri, null, null) }
+            }
+        }
         val request = OneTimeWorkRequestBuilder<LivePhotoWidgetUploadWorker>()
             .setConstraints(
                 Constraints.Builder()
@@ -470,6 +482,39 @@ private fun createLivePhotoThumbnail(original: ByteArray): ByteArray {
         }
     } finally {
         if (!bitmap.isRecycled) bitmap.recycle()
+    }
+}
+
+
+class LivePhotoWidgetDeleteWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
+    override suspend fun doWork(): Result {
+        val code = inputData.getString("code") ?: return Result.failure()
+        val photoId = inputData.getString("photoId") ?: return Result.failure()
+        return try {
+            LivePhotoWidgetRepo.deletePhoto(code, photoId)
+            Result.success()
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            Result.retry()
+        }
+    }
+
+    companion object {
+        fun enqueue(context: Context, code: String, photoId: String) {
+            val request = OneTimeWorkRequestBuilder<LivePhotoWidgetDeleteWorker>()
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                )
+                .setInputData(workDataOf("code" to code, "photoId" to photoId))
+                .setBackoffCriteria(androidx.work.BackoffPolicy.EXPONENTIAL, 30, TimeUnit.SECONDS)
+                .build()
+            WorkManager.getInstance(context).enqueueUniqueWork(
+                "live-photo-delete-$code-$photoId",
+                ExistingWorkPolicy.KEEP,
+                request
+            )
+        }
     }
 }
 
@@ -776,7 +821,7 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
                     scope.launch {
                         working = true
                         try {
-                            LivePhotoWidgetRepo.removeCurrentPhoto(code, uid)
+                            LivePhotoWidgetRepo.removeCurrentPhoto(context, code, uid)
                             feedback = "Shared widget photo removed."
                         } catch (error: Exception) {
                             feedback = error.message ?: "Couldn't remove the shared photo."
