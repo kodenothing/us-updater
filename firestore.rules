@@ -209,6 +209,91 @@ service cloud.firestore {
         allow delete: if isCoupleMember(cid);
       }
 
+      // Live Photo Widget keeps one shared active pointer and independent Firestore Blob photos.
+      match /livePhotoWidget/{stateId} {
+        allow read: if isCoupleMember(cid);
+
+        allow create, update: if stateId == 'current'
+          && isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['activePhotoId', 'updatedBy', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['activePhotoId', 'updatedBy', 'updatedAt'])
+          && request.resource.data.activePhotoId is string
+          && request.resource.data.activePhotoId.size() <= 128
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt is int
+          && (
+            request.resource.data.activePhotoId == ''
+            || (
+              existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(request.resource.data.activePhotoId))
+              && getAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(request.resource.data.activePhotoId)).data.status == 'ready'
+            )
+          );
+
+        allow delete: if stateId == 'current' && isCoupleMember(cid)
+          && allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data);
+      }
+
+      match /livePhotoWidgetPhotos/{photoId} {
+        allow read: if isCoupleMember(cid);
+
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['createdBy', 'createdAt', 'status', 'sizeBytes', 'thumbnailBytes'])
+          && request.resource.data.keys().hasOnly(['createdBy', 'createdAt', 'status', 'sizeBytes', 'thumbnailBytes'])
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt is int
+          && request.resource.data.status == 'pending'
+          && request.resource.data.sizeBytes == 0
+          && request.resource.data.thumbnailBytes == 0;
+
+        allow update: if isCoupleMember(cid)
+          && request.auth.uid == resource.data.createdBy
+          && resource.data.status == 'pending'
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly([
+            'status', 'sizeBytes', 'thumbnailBytes', 'previousPhotoId'
+          ])
+          && request.resource.data.status == 'ready'
+          && request.resource.data.sizeBytes is int
+          && request.resource.data.sizeBytes > 0
+          && request.resource.data.sizeBytes <= 716800
+          && request.resource.data.thumbnailBytes is int
+          && request.resource.data.thumbnailBytes > 0
+          && request.resource.data.thumbnailBytes <= 81920
+          && request.resource.data.previousPhotoId is string
+          && request.resource.data.previousPhotoId.size() <= 128
+          && existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)/content/image)
+          && existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)/content/thumbnail);
+
+        allow delete: if isCoupleMember(cid) && (
+          !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
+          || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
+        );
+
+        match /content/{contentId} {
+          allow get: if contentId in ['image', 'thumbnail'] && isCoupleMember(cid);
+          allow list: if false;
+
+          allow create: if isCoupleMember(cid)
+            && contentId in ['image', 'thumbnail']
+            && get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)).data.createdBy == request.auth.uid
+            && get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)).data.status == 'pending'
+            && request.resource.data.keys().hasAll(['image', 'contentType', 'createdBy', 'createdAt'])
+            && request.resource.data.keys().hasOnly(['image', 'contentType', 'createdBy', 'createdAt'])
+            && request.resource.data.image is bytes
+            && (contentId == 'thumbnail'
+              ? request.resource.data.image.size() <= 81920
+              : request.resource.data.image.size() <= 716800)
+            && request.resource.data.contentType == 'image/jpeg'
+            && request.resource.data.createdBy == request.auth.uid
+            && request.resource.data.createdAt is int;
+
+          allow update: if false;
+          allow delete: if isCoupleMember(cid) && (
+            !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
+            || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
+          );
+        }
+      }
+
       match /memories/{memoryId} {
         allow read: if isCoupleMember(cid);
         allow create: if isCoupleMember(cid)

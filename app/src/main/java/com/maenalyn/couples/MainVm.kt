@@ -133,6 +133,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             code.collectLatest { c ->
                 if (c == null) {
+                    LivePhotoWidgetProvider.clearLocalCache(getApplication())
                     couple.value = null
                     coupleLoadError.value = null
                     myNickname.value = ""
@@ -170,6 +171,17 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                         coupleLoadError.value = null
                     }
                     registerPushToken(c)
+                    launch {
+                        try {
+                            LivePhotoWidgetRepo.observeCurrent(c).collectLatest {
+                                LivePhotoWidgetSyncWorker.enqueue(getApplication(), c)
+                            }
+                        } catch (error: CancellationException) {
+                            throw error
+                        } catch (error: Exception) {
+                            message.value = error.message ?: "Live Photo Widget will refresh when the connection returns."
+                        }
+                    }
                     launch {
                         coupleRetryRequests.collectLatest {
                             coupleLoadError.value = null

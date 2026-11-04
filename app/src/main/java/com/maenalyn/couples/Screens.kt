@@ -51,10 +51,10 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.History
 import androidx.compose.material.icons.filled.Map
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -589,7 +589,6 @@ fun HomeScreen(vm: MainVm) {
     val events by vm.events.collectAsState()
     val notes by vm.notes.collectAsState()
     val memories by vm.memories.collectAsState()
-    val activity by vm.activity.collectAsState()
     val sharedLocations by vm.sharedLocations.collectAsState()
     val sharingEnabled by vm.shareLocationEnabled.collectAsState()
     val keepSharingInBackground by vm.keepLocationSharingInBackground.collectAsState()
@@ -610,6 +609,7 @@ fun HomeScreen(vm: MainVm) {
     val heartSizeDp by vm.heartSizeDp.collectAsState()
     val heartAnimationDurationMs by vm.heartAnimationDurationMs.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
+    BackHandler(enabled = tab == 8) { tab = 0 }
     var confirm by remember { mutableStateOf(false) }
     var showDailyUs by remember { mutableStateOf(false) }
     var todayKey by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -776,6 +776,15 @@ fun HomeScreen(vm: MainVm) {
         snackbarHost = { SnackbarHost(snack) },
         topBar = {
             CenterAlignedTopAppBar(
+                navigationIcon = {
+                    IconButton(onClick = { tab = 8 }) {
+                        Icon(
+                            Icons.Filled.Widgets,
+                            contentDescription = "Our Instant",
+                            tint = if (tab == 8) cs.primary else cs.onSurface
+                        )
+                    }
+                },
                 title = {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         Text(title.ifBlank { "Us" }, style = MaterialTheme.typography.titleLarge, maxLines = 1)
@@ -785,8 +794,8 @@ fun HomeScreen(vm: MainVm) {
                             tab == 2 -> "Little words, kept close"
                             tab == 3 -> "Our moments"
                             tab == 4 -> "Things we're doing and dreaming"
-                            tab == 5 -> "Recent little updates"
                             tab == 7 -> "See where we are"
+                            tab == 8 -> "Our Instant"
                             else -> ""
                         }
                         if (subtitle.isNotBlank()) {
@@ -799,13 +808,6 @@ fun HomeScreen(vm: MainVm) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { tab = 5 }) {
-                        Icon(
-                            Icons.Filled.History,
-                            contentDescription = "Activity",
-                            tint = if (tab == 5) cs.primary else cs.onSurface
-                        )
-                    }
                     IconButton(onClick = { tab = 7 }) {
                         Icon(
                             Icons.Filled.Map,
@@ -868,25 +870,6 @@ fun HomeScreen(vm: MainVm) {
                 2 -> NotesTab(vm, notes, pad)
                 3 -> MemoriesTab(vm, memories, pad)
                 4 -> ListsHubTab(all, vm, pad)
-                5 -> ActivityCenterTab(
-                    entries = activity,
-                    memberNames = couple?.memberNames.orEmpty(),
-                    currentUid = currentUid,
-                    pad = pad,
-                    onOpenTarget = { target, targetId ->
-                        when (target) {
-                            "items" -> tab = 4
-                            "events" -> tab = 1
-                            "notes" -> tab = 2
-                            "memories" -> tab = 3
-                            "daily" -> {
-                                dailyDateKey = runCatching { LocalDate.parse(targetId).toString() }.getOrDefault(todayKey)
-                                tab = 0
-                                showDailyUs = true
-                            }
-                        }
-                    }
-                )
                 7 -> OurMapTab(
                     couple = couple,
                     currentUid = currentUid,
@@ -936,6 +919,11 @@ fun HomeScreen(vm: MainVm) {
                         }
                     },
                     modifier = Modifier.padding(pad)
+                )
+                8 -> OurInstantTab(
+                    code = vm.code.value.orEmpty(),
+                    uid = currentUid.orEmpty(),
+                    pad = pad
                 )
                 else -> SettingsTab(vm, couple, { confirm = true }, pad)
             }

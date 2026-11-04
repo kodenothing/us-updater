@@ -726,7 +726,11 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
         }
 
         if (visibleAlbums.isEmpty()) {
-            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
                 Icon(Icons.Filled.Image, null, tint = cs.primary, modifier = Modifier.size(44.dp))
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -1322,100 +1326,20 @@ fun DailyUsSheetContent(
 }
 
 @Composable
-fun ActivityCenterTab(
-    entries: List<ActivityEntry>,
-    memberNames: Map<String, String>,
-    currentUid: String?,
-    pad: PaddingValues,
-    onOpenTarget: (String, String) -> Unit
-) {
+fun OurInstantTab(code: String, uid: String, pad: PaddingValues) {
     val cs = MaterialTheme.colorScheme
-    var filter by remember { mutableStateOf("All") }
-    val filters = listOf("All", "Lists", "Plans", "Notes", "Memories", "Daily Us")
-    fun category(type: String): String = when (type) {
-        "todo_created", "bucket_created", "todo_completed" -> "Lists"
-        "event_created", "event_updated" -> "Plans"
-        "note_created" -> "Notes"
-        "memory_created" -> "Memories"
-        "daily_answered", "daily_checkin" -> "Daily Us"
-        else -> "Other"
-    }
-    val visible = remember(entries, filter) {
-        entries.filter { filter == "All" || category(it.type) == filter }
-    }
-
-    Column(Modifier.fillMaxSize().padding(pad).padding(horizontal = 18.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-            Text("A little history of us", style = MaterialTheme.typography.titleLarge)
-            Text("Shared moments and updates from both of you.", color = cs.onSurfaceVariant, fontSize = 12.sp)
-        }
-        Row(
-            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(7.dp)
-        ) {
-            filters.forEach { option ->
-                FilterChip(selected = filter == option, onClick = { filter = option }, label = { Text(option) })
-            }
-        }
-        if (visible.isEmpty()) {
-            Column(
-                Modifier.fillMaxWidth().weight(1f).clip(RoundedCornerShape(24.dp))
-                    .background(cs.surfaceVariant.copy(alpha = 0.45f)).padding(24.dp),
-                horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center
-            ) {
-                Text("💗", fontSize = 34.sp)
-                Spacer(Modifier.height(8.dp))
-                Text(if (entries.isEmpty()) "Your story will show up here" else "No updates in this category yet", fontWeight = FontWeight.SemiBold)
-                Text("When either of you adds something, it will appear here.", color = cs.onSurfaceVariant, fontSize = 12.sp, textAlign = TextAlign.Center)
-            }
-        } else {
-            LazyColumn(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp), contentPadding = PaddingValues(bottom = 18.dp)) {
-                items(visible, key = { it.id }) { entry ->
-                    val who = memberNames[entry.actorUid]?.takeIf { it.isNotBlank() }
-                        ?: if (entry.actorUid == currentUid) "You" else "Your person"
-                    val icon = when (category(entry.type)) {
-                        "Lists" -> "✓"
-                        "Plans" -> "♡"
-                        "Notes" -> "✉"
-                        "Memories" -> "▧"
-                        "Daily Us" -> "♥"
-                        else -> "•"
-                    }
-                    val timestamp = remember(entry.createdAt) {
-                        runCatching {
-                            val at = java.time.Instant.ofEpochMilli(entry.createdAt).atZone(java.time.ZoneId.systemDefault())
-                            val today = LocalDate.now()
-                            val day = at.toLocalDate()
-                            val dateLabel = when (day) {
-                                today -> "Today"
-                                today.minusDays(1) -> "Yesterday"
-                                else -> day.format(DateTimeFormatter.ofPattern("MMM d"))
-                            }
-                            "$dateLabel · ${at.format(DateTimeFormatter.ofPattern("h:mm a"))}"
-                        }.getOrDefault("")
-                    }
-                    Row(
-                        Modifier.fillMaxWidth().clip(RoundedCornerShape(20.dp))
-                            .background(cs.surfaceVariant.copy(alpha = 0.45f))
-                            .clickable { if (entry.targetCollection.isNotBlank()) onOpenTarget(entry.targetCollection, entry.targetId) }
-                            .padding(14.dp),
-                        verticalAlignment = Alignment.Top
-                    ) {
-                        Box(
-                            Modifier.size(40.dp).clip(CircleShape).background(cs.primaryContainer),
-                            contentAlignment = Alignment.Center
-                        ) { Text(icon, color = cs.onPrimaryContainer, fontSize = 19.sp, fontWeight = FontWeight.Bold) }
-                        Spacer(Modifier.width(11.dp))
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                            Text("$who · ${entry.title}", fontWeight = FontWeight.SemiBold, color = cs.onSurface)
-                            if (entry.summary.isNotBlank()) Text(entry.summary, color = cs.onSurfaceVariant, fontSize = 12.sp, maxLines = 2, overflow = TextOverflow.Ellipsis)
-                            Text(timestamp, color = cs.onSurfaceVariant.copy(alpha = 0.8f), fontSize = 10.sp)
-                        }
-                        Text("›", color = cs.primary, fontSize = 24.sp)
-                    }
-                }
-            }
-        }
+    Column(
+        Modifier.fillMaxSize()
+            .padding(pad)
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 18.dp, vertical = 16.dp),
+        verticalArrangement = Arrangement.spacedBy(12.dp)
+    ) {
+        Text(
+            "A shared photo that updates on both of your home screens.",
+            color = cs.onSurfaceVariant,
+            style = MaterialTheme.typography.bodyMedium
+        )
+        LivePhotoWidgetCard(code = code, uid = uid)
     }
 }
