@@ -64,11 +64,9 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.google.firebase.firestore.Blob
-import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.FirebaseFirestoreException
-import com.google.firebase.auth.FirebaseAuth
 import com.google.android.gms.tasks.Task
 import java.io.ByteArrayOutputStream
 import java.io.File
@@ -109,8 +107,9 @@ object LivePhotoWidgetRepo {
     private fun photos(code: String) = couple(code).collection("livePhotoWidgetPhotos")
 
     fun observeCurrent(code: String): Flow<LivePhotoWidgetState> = callbackFlow {
-        val registration = state(code).addSnapshotListener { snapshot, _ ->
-            if (snapshot == null || !snapshot.exists()) {
+        val registration = state(code).addSnapshotListener { snapshot, error ->
+            if (error != null || snapshot == null) return@addSnapshotListener
+            if (!snapshot.exists()) {
                 trySend(LivePhotoWidgetState())
             } else {
                 trySend(
@@ -269,6 +268,9 @@ object LivePhotoWidgetUploadScheduler {
         val file = File(LivePhotoWidgetFiles.uploads(context).apply { mkdirs() }, "$id.jpg")
         try {
             compressPhoto(context, uri, file)
+        } catch (error: Exception) {
+            file.delete()
+            throw error
         } finally {
             if (uri.authority == "${context.packageName}.fileprovider") {
                 runCatching { context.contentResolver.delete(uri, null, null) }
