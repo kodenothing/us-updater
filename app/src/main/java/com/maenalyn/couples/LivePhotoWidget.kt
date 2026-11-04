@@ -223,11 +223,8 @@ object LivePhotoWidgetRepo {
             oldId.takeIf { it.isNotBlank() }
         }.await()
         if (previousId != null) {
-            try {
-                deletePhoto(code, previousId)
-            } catch (_: Exception) {
-                LivePhotoWidgetDeleteWorker.enqueue(context, code, previousId)
-            }
+            // Enqueue before attempting direct cleanup so process death cannot orphan the old Blob.
+            LivePhotoWidgetDeleteWorker.enqueue(context, code, previousId)
         }
         return previousId
     }
@@ -605,6 +602,23 @@ class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : Co
     }
 }
 
+
+private fun decodeWidgetBitmap(file: File): Bitmap? {
+    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+    BitmapFactory.decodeFile(file.absolutePath, bounds)
+    if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
+
+    var sample = 1
+    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 512) sample *= 2
+    return BitmapFactory.decodeFile(
+        file.absolutePath,
+        BitmapFactory.Options().apply {
+            inSampleSize = sample
+            inPreferredConfig = Bitmap.Config.RGB_565
+        }
+    )
+}
+
 class LivePhotoWidgetProvider : AppWidgetProvider() {
     override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
         updateAll(context)
@@ -670,7 +684,7 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             val cachedId = LivePhotoWidgetFiles.preferences(context)
                 .getString("livePhotoWidgetCachedId", null)
             val bitmap = if (cache.exists() && !cachedId.isNullOrBlank()) {
-                BitmapFactory.decodeFile(cache.absolutePath)
+                decodeWidgetBitmap(cache)
             } else null
             if (bitmap != null) {
                 views.setImageViewBitmap(R.id.live_photo_image, bitmap)
