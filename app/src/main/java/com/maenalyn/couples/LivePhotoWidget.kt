@@ -79,6 +79,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -718,6 +719,7 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
                     onClick = {
                         runCatching {
                             val file = File(context.cacheDir, "live-widget-${UUID.randomUUID()}.jpg")
+                            file.createNewFile()
                             val uri = FileProvider.getUriForFile(
                                 context,
                                 "${context.packageName}.fileprovider",
