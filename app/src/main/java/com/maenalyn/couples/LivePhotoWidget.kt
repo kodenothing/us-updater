@@ -743,7 +743,7 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
             feedback = null
             try {
                 LivePhotoWidgetUploadScheduler.enqueueFromUri(context, code, uid, uri)
-                feedback = "Photo queued. Both widgets will update after it syncs."
+                feedback = "Our Instant photo queued. Both home-screen widgets will update after it syncs."
             } catch (error: Exception) {
                 feedback = error.message ?: "Couldn't prepare this photo."
             } finally {
@@ -778,7 +778,7 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
                 Icon(Icons.Filled.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
                 Spacer(Modifier.size(8.dp))
                 Column(Modifier.weight(1f)) {
-                    Text("Live Photo Widget", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
+                    Text("Our Instant", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
                     Text(
                         "One shared photo on both home screens",
                         style = MaterialTheme.typography.bodySmall,
@@ -794,7 +794,7 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
                 if (preview != null) {
                     Image(
                         bitmap = preview!!.asImageBitmap(),
-                        contentDescription = "Current shared Live Photo Widget image",
+                        contentDescription = "Current shared Our Instant photo",
                         modifier = Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(18.dp)),
                         contentScale = ContentScale.Crop
                     )
@@ -855,7 +855,7 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
 
             Row(verticalAlignment = Alignment.CenterVertically) {
                 Text(
-                    "Add it: Home screen → Widgets → Us → Live Photo",
+                    "Add it: Home screen → Widgets → Us → Our Instant",
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
@@ -873,8 +873,8 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
     if (confirmRemove) {
         AlertDialog(
             onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove shared widget photo?") },
-            text = { Text("This removes the active photo and its Firestore image documents. Both home screen widgets will return to the empty state.") },
+            title = { Text("Remove the shared Our Instant photo?") },
+            text = { Text("This permanently removes the active Our Instant photo and its Firestore image documents. Both home screen widgets will return to the empty state.") },
             confirmButton = {
                 TextButton(onClick = {
                     confirmRemove = false
@@ -882,7 +882,7 @@ fun LivePhotoWidgetCard(code: String, uid: String) {
                         working = true
                         try {
                             LivePhotoWidgetRepo.removeCurrentPhoto(context, code, uid)
-                            feedback = "Shared widget photo removed."
+                            feedback = "Our Instant photo removed."
                         } catch (error: Exception) {
                             feedback = error.message ?: "Couldn't remove the shared photo."
                         } finally {
