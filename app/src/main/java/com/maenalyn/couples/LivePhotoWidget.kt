@@ -58,6 +58,8 @@ import androidx.core.content.FileProvider
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
+import androidx.work.ExistingPeriodicWorkPolicy
+import androidx.work.PeriodicWorkRequestBuilder
 import androidx.work.NetworkType
 import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
@@ -612,6 +614,11 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
         updateOne(context, manager, appWidgetId)
     }
 
+    override fun onDisabled(context: Context) {
+        WorkManager.getInstance(context).cancelAllWorkByTag("live-photo-widget")
+        super.onDisabled(context)
+    }
+
     companion object {
         fun clearLocalCache(context: Context) {
             WorkManager.getInstance(context).cancelAllWorkByTag("live-photo-widget")
@@ -627,7 +634,21 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             ids.forEach { updateOne(context, manager, it) }
             if (scheduleSync && ids.isNotEmpty()) {
                 val code = context.getSharedPreferences("us", Context.MODE_PRIVATE).getString("code", null)
-                if (!code.isNullOrBlank()) LivePhotoWidgetSyncWorker.enqueue(context, code)
+                if (!code.isNullOrBlank()) {
+                    LivePhotoWidgetSyncWorker.enqueue(context, code)
+                    val periodic = PeriodicWorkRequestBuilder<LivePhotoWidgetSyncWorker>(15, TimeUnit.MINUTES)
+                        .setConstraints(
+                            Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                        )
+                        .setInputData(workDataOf("code" to code))
+                        .addTag("live-photo-widget")
+                        .build()
+                    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                        "live-photo-widget-periodic-$code",
+                        ExistingPeriodicWorkPolicy.UPDATE,
+                        periodic
+                    )
+                }
             }
         }
 
