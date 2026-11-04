@@ -68,6 +68,7 @@ dependencies {
     implementation("androidx.camera:camera-camera2:1.6.2")
     implementation("androidx.camera:camera-lifecycle:1.6.2")
     implementation("androidx.camera:camera-view:1.6.2")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
