@@ -10,7 +10,7 @@
         android:id="@+id/live_photo_image"
         android:layout_width="match_parent"
         android:layout_height="match_parent"
-        android:contentDescription="Shared Live Photo"
+        android:contentDescription="Our Instant shared photo"
         android:scaleType="centerCrop"
         android:visibility="gone" />
 
@@ -20,7 +20,7 @@
         android:layout_height="match_parent"
         android:gravity="center"
         android:padding="20dp"
-        android:text="Your shared photo will appear here 💜&#10;Open Us to choose a photo"
+        android:text="Your shared photo will appear here 💜&#10;Open Us → Our Instant to choose a photo"
         android:textColor="#806C83"
         android:textSize="13sp"
         android:textStyle="bold"
