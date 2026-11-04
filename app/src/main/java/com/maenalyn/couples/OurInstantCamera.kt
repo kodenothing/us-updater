@@ -33,6 +33,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.DeleteOutline
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
@@ -89,6 +90,7 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
     var cameraError by remember { mutableStateOf<String?>(null) }
     var feedback by remember { mutableStateOf<String?>(null) }
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    var useFrontCamera by remember { mutableStateOf(false) }
     var current by remember(code) { mutableStateOf(LivePhotoWidgetState()) }
     var working by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
@@ -266,6 +268,7 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
         ) {
             if (hasCameraPermission) {
                 OurInstantCameraPreview(
+                    useFrontCamera = useFrontCamera,
                     onImageCaptureReady = { imageCapture = it },
                     onCameraError = { cameraError = it }
                 )
@@ -367,6 +370,27 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
                     )
                 }
             }
+
+            IconButton(
+                onClick = {
+                    useFrontCamera = !useFrontCamera
+                    cameraError = null
+                    feedback = null
+                },
+                enabled = hasCameraPermission && !working,
+                modifier = Modifier
+                    .align(Alignment.CenterEnd)
+                    .padding(end = 12.dp)
+                    .size(52.dp)
+                    .background(Color.White.copy(alpha = 0.14f), CircleShape)
+            ) {
+                Icon(
+                    Icons.Filled.Cameraswitch,
+                    contentDescription = if (useFrontCamera) "Switch to back camera" else "Switch to front camera",
+                    tint = white,
+                    modifier = Modifier.size(27.dp)
+                )
+            }
         }
 
         feedback?.let {
@@ -412,6 +436,7 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
 
 @Composable
 private fun OurInstantCameraPreview(
+    useFrontCamera: Boolean,
     onImageCaptureReady: (ImageCapture?) -> Unit,
     onCameraError: (String?) -> Unit
 ) {
@@ -442,7 +467,7 @@ private fun OurInstantCameraPreview(
         modifier = Modifier.fillMaxSize()
     )
 
-    DisposableEffect(cameraProvider, lifecycleOwner, previewView) {
+    DisposableEffect(cameraProvider, lifecycleOwner, previewView, useFrontCamera) {
         val provider = cameraProvider
         if (provider == null) {
             onImageCaptureReady(null)
@@ -456,11 +481,22 @@ private fun OurInstantCameraPreview(
                 .setFlashMode(ImageCapture.FLASH_MODE_AUTO)
                 .build()
             capture.targetRotation = previewView.display?.rotation ?: android.view.Surface.ROTATION_0
+            val cameraSelector = if (useFrontCamera) {
+                CameraSelector.DEFAULT_FRONT_CAMERA
+            } else {
+                CameraSelector.DEFAULT_BACK_CAMERA
+            }
             try {
+                if (!provider.hasCamera(cameraSelector)) {
+                    throw IllegalStateException(
+                        if (useFrontCamera) "This device doesn't have an available front camera."
+                        else "This device doesn't have an available back camera."
+                    )
+                }
                 provider.unbindAll()
                 provider.bindToLifecycle(
                     lifecycleOwner,
-                    CameraSelector.DEFAULT_BACK_CAMERA,
+                    cameraSelector,
                     preview,
                     capture
                 )
