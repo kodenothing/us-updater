@@ -229,7 +229,8 @@ service cloud.firestore {
             )
           );
 
-        allow delete: if false;
+        allow delete: if stateId == 'current' && isCoupleMember(cid)
+          && allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data);
       }
 
       match /livePhotoWidgetPhotos/{photoId} {
