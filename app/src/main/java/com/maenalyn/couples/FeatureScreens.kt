@@ -1327,19 +1327,5 @@ fun DailyUsSheetContent(
 
 @Composable
 fun OurInstantTab(code: String, uid: String, pad: PaddingValues) {
-    val cs = MaterialTheme.colorScheme
-    Column(
-        Modifier.fillMaxSize()
-            .padding(pad)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 18.dp, vertical = 16.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        Text(
-            "A shared photo that updates on both of your home screens.",
-            color = cs.onSurfaceVariant,
-            style = MaterialTheme.typography.bodyMedium
-        )
-        LivePhotoWidgetCard(code = code, uid = uid)
-    }
+    OurInstantCameraScreen(code = code, uid = uid, pad = pad)
 }
