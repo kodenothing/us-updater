@@ -1126,6 +1126,7 @@ private fun MapLibreSurface(
                     pin.title.endsWith(" · last known") -> "Last known location · updates delayed"
                     else -> "Live shared location"
                 }
+                libreMap.updateMarker(marker)
                 val start = marker.position
                 if (kotlin.math.abs(start.latitude - target.latitude) > 0.000001 ||
                     kotlin.math.abs(start.longitude - target.longitude) > 0.000001) {
