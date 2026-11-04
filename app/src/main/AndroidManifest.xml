@@ -49,7 +49,8 @@
             android:exported="false" />
         <receiver
             android:name=".LivePhotoWidgetProvider"
-            android:exported="true">
+            android:exported="true"
+            android:label="@string/our_instant_widget_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
                 <action android:name="android.appwidget.action.APPWIDGET_OPTIONS_CHANGED" />
