@@ -8,53 +8,11 @@ import android.content.Context
 import android.content.Intent
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
 import android.widget.RemoteViews
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.PickVisualMediaRequest
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.foundation.Image
-import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.CameraAlt
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material.icons.filled.Image
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.Card
-import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.CircularProgressIndicator
-import androidx.compose.material3.FilledTonalButton
-import androidx.compose.material3.Icon
-import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
-import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.Alignment
-import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.layout.ContentScale
-import androidx.compose.ui.platform.LocalContext
-import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.unit.dp
-import androidx.core.content.FileProvider
+import androidx.exifinterface.media.ExifInterface
 import androidx.work.Constraints
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingWorkPolicy
@@ -79,11 +37,8 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
-import kotlinx.coroutines.flow.collect
-import kotlinx.coroutines.launch
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
-
 private const val LIVE_WIDGET_MAX_IMAGE_BYTES = 700 * 1024
 private const val LIVE_WIDGET_MAX_THUMBNAIL_BYTES = 80 * 1024
 private const val LIVE_WIDGET_STATE_DOCUMENT = "current"
@@ -309,6 +264,9 @@ object LivePhotoWidgetUploadScheduler {
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
             throw IllegalArgumentException("This photo format can't be opened. Choose a JPEG, PNG, or WebP image.")
         }
+        val rotationDegrees = resolver.openInputStream(uri)?.use {
+            ExifInterface(it).rotationDegrees
+        } ?: 0
 
         var sampleSize = 1
         while (maxOf(bounds.outWidth, bounds.outHeight) / sampleSize > 1600) sampleSize *= 2
@@ -324,6 +282,14 @@ object LivePhotoWidgetUploadScheduler {
         } ?: throw IllegalArgumentException("Couldn't read that photo. Please choose it again.")
 
         try {
+            if (rotationDegrees != 0) {
+                val matrix = Matrix().apply { postRotate(rotationDegrees.toFloat()) }
+                val rotated = Bitmap.createBitmap(
+                    bitmap, 0, 0, bitmap.width, bitmap.height, matrix, true
+                )
+                bitmap.recycle()
+                bitmap = rotated
+            }
             if (maxOf(bitmap.width, bitmap.height) > 1600) {
                 val ratio = 1600f / maxOf(bitmap.width, bitmap.height)
                 val scaled = Bitmap.createScaledBitmap(
@@ -719,191 +685,5 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             views.setOnClickPendingIntent(R.id.widget_live_photo_root, pending)
             manager.updateAppWidget(id, views)
         }
-    }
-}
-
-@Composable
-fun LivePhotoWidgetCard(code: String, uid: String) {
-    val context = LocalContext.current
-    val scope = rememberCoroutineScope()
-    var current by remember(code) { mutableStateOf(LivePhotoWidgetState()) }
-    var preview by remember(current.activePhotoId) { mutableStateOf<Bitmap?>(null) }
-    var working by remember { mutableStateOf(false) }
-    var confirmRemove by remember { mutableStateOf(false) }
-    var feedback by remember { mutableStateOf<String?>(null) }
-    var cameraUri by remember { mutableStateOf<Uri?>(null) }
-
-    LaunchedEffect(code) {
-        LivePhotoWidgetRepo.observeCurrent(code).collect { state ->
-            current = state
-            LivePhotoWidgetSyncWorker.enqueue(context, code)
-        }
-    }
-
-    LaunchedEffect(code, current.activePhotoId) {
-        preview = null
-        val id = current.activePhotoId
-        if (id.isNotBlank()) {
-            preview = runCatching { LivePhotoWidgetRepo.loadThumbnail(context, code, id) }.getOrNull()
-        }
-    }
-
-    fun submitPhoto(uri: Uri) {
-        if (working || uid.isBlank()) return
-        scope.launch {
-            working = true
-            feedback = null
-            try {
-                LivePhotoWidgetUploadScheduler.enqueueFromUri(context, code, uid, uri)
-                feedback = "Our Instant photo queued. Both home-screen widgets will update after it syncs."
-            } catch (error: Exception) {
-                feedback = error.message ?: "Couldn't prepare this photo."
-            } finally {
-                working = false
-            }
-        }
-    }
-
-    val picker = rememberLauncherForActivityResult(
-        ActivityResultContracts.PickVisualMedia()
-    ) { uri -> if (uri != null) submitPhoto(uri) }
-
-    val camera = rememberLauncherForActivityResult(
-        ActivityResultContracts.TakePicture()
-    ) { saved ->
-        val uri = cameraUri
-        cameraUri = null
-        if (saved && uri != null) submitPhoto(uri)
-        else feedback = "No photo was captured."
-    }
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(24.dp),
-        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.48f))
-    ) {
-        Column(
-            modifier = Modifier.fillMaxWidth().padding(16.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(Icons.Filled.Image, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-                Spacer(Modifier.size(8.dp))
-                Column(Modifier.weight(1f)) {
-                    Text("Our Instant", style = MaterialTheme.typography.titleMedium, fontWeight = FontWeight.Bold)
-                    Text(
-                        "One shared photo on both home screens",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                    )
-                }
-            }
-
-            Box(
-                modifier = Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(18.dp)),
-                contentAlignment = Alignment.Center
-            ) {
-                if (preview != null) {
-                    Image(
-                        bitmap = preview!!.asImageBitmap(),
-                        contentDescription = "Current shared Our Instant photo",
-                        modifier = Modifier.fillMaxWidth().height(190.dp).clip(RoundedCornerShape(18.dp)),
-                        contentScale = ContentScale.Crop
-                    )
-                } else {
-                    Column(horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                        Icon(Icons.Filled.Image, contentDescription = null, modifier = Modifier.size(36.dp), tint = MaterialTheme.colorScheme.onSurfaceVariant)
-                        Text(
-                            if (current.activePhotoId.isBlank()) "Choose your first shared photo" else "Loading shared photo…",
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        if (current.activePhotoId.isNotBlank()) CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
-                    }
-                }
-            }
-
-            Row(horizontalArrangement = Arrangement.spacedBy(8.dp), modifier = Modifier.fillMaxWidth()) {
-                FilledTonalButton(
-                    onClick = { picker.launch(PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageOnly)) },
-                    enabled = !working,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Filled.Image, contentDescription = null)
-                    Spacer(Modifier.size(6.dp))
-                    Text("Pick a photo")
-                }
-                OutlinedButton(
-                    onClick = {
-                        runCatching {
-                            val file = File(context.cacheDir, "live-widget-${UUID.randomUUID()}.jpg")
-                            file.createNewFile()
-                            val uri = FileProvider.getUriForFile(
-                                context,
-                                "${context.packageName}.fileprovider",
-                                file
-                            )
-                            cameraUri = uri
-                            camera.launch(uri)
-                        }.onFailure {
-                            feedback = "Couldn't open the camera. Please try again."
-                        }
-                    },
-                    enabled = !working,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Filled.CameraAlt, contentDescription = null)
-                    Spacer(Modifier.size(6.dp))
-                    Text("Take a photo")
-                }
-            }
-
-            if (working) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
-                    Text("Preparing photo…", style = MaterialTheme.typography.bodySmall)
-                }
-            }
-            feedback?.let { Text(it, style = MaterialTheme.typography.bodySmall, color = MaterialTheme.colorScheme.primary) }
-
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Text(
-                    "Add it: Home screen → Widgets → Us → Our Instant",
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
-                )
-                if (current.activePhotoId.isNotBlank()) {
-                    TextButton(onClick = { confirmRemove = true }) {
-                        Icon(Icons.Filled.DeleteOutline, contentDescription = null)
-                        Text("Remove")
-                    }
-                }
-            }
-        }
-    }
-
-    if (confirmRemove) {
-        AlertDialog(
-            onDismissRequest = { confirmRemove = false },
-            title = { Text("Remove the shared Our Instant photo?") },
-            text = { Text("This permanently removes the active Our Instant photo and its Firestore image documents. Both home screen widgets will return to the empty state.") },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmRemove = false
-                    scope.launch {
-                        working = true
-                        try {
-                            LivePhotoWidgetRepo.removeCurrentPhoto(context, code, uid)
-                            feedback = "Our Instant photo removed."
-                        } catch (error: Exception) {
-                            feedback = error.message ?: "Couldn't remove the shared photo."
-                        } finally {
-                            working = false
-                        }
-                    }
-                }) { Text("Remove photo") }
-            },
-            dismissButton = { TextButton(onClick = { confirmRemove = false }) { Text("Cancel") } }
-        )
     }
 }

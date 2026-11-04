@@ -21,8 +21,8 @@ android {
         applicationId = "com.maenalyn.couples"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "2.4.7"
+        versionCode = 21
+        versionName = "2.4.8"
     }
 
     signingConfigs {
@@ -54,6 +54,12 @@ android {
 }
 
 dependencies {
+    modules {
+        module("com.google.guava:listenablefuture") {
+            replacedBy("com.google.guava:guava", "ListenableFuture is included in Guava")
+        }
+    }
+
     implementation(platform("androidx.compose:compose-bom:2024.09.00"))
     implementation("androidx.compose.ui:ui")
     implementation("androidx.compose.animation:animation")
@@ -65,6 +71,11 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.8.3")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.camera:camera-camera2:1.3.4")
+    implementation("androidx.camera:camera-lifecycle:1.3.4")
+    implementation("androidx.camera:camera-view:1.3.4")
+    implementation("androidx.exifinterface:exifinterface:1.4.2")
+
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
