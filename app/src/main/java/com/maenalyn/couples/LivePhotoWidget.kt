@@ -376,6 +376,10 @@ class LivePhotoWidgetUploadWorker(context: Context, params: WorkerParameters) : 
         val file = File(inputData.getString("filePath") ?: return Result.failure())
         val createdAt = inputData.getLong("createdAt", System.currentTimeMillis())
         if (!file.exists()) return Result.failure()
+        if (LivePhotoWidgetFiles.preferences(applicationContext).getString("code", null) != code) {
+            withContext(Dispatchers.IO) { file.delete() }
+            return Result.success()
+        }
 
         return try {
             val photo = LivePhotoWidgetRepo.getPhoto(code, id).await()
@@ -397,6 +401,10 @@ class LivePhotoWidgetUploadWorker(context: Context, params: WorkerParameters) : 
                 val thumbnailSnapshot = LivePhotoWidgetRepo.getBlob(code, id, "thumbnail").await()
                 if (!thumbnailSnapshot.exists()) {
                     LivePhotoWidgetRepo.uploadBlob(code, id, uid, "thumbnail", thumbnailBytes, createdAt).await()
+                }
+                if (LivePhotoWidgetFiles.preferences(applicationContext).getString("code", null) != code) {
+                    withContext(Dispatchers.IO) { file.delete() }
+                    return Result.success()
                 }
                 val previousId = LivePhotoWidgetRepo.activatePhoto(
                     code, id, uid, imageBytes.size.toLong(), thumbnailBytes.size.toLong()
@@ -525,6 +533,8 @@ class LivePhotoWidgetDeleteWorker(context: Context, params: WorkerParameters) : 
 class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val code = inputData.getString("code") ?: return Result.failure()
+        val prefs = LivePhotoWidgetFiles.preferences(applicationContext)
+        if (prefs.getString("code", null) != code) return Result.success()
         return try {
             val state = FirebaseFirestore.getInstance()
                 .collection("couples").document(code)
@@ -534,6 +544,7 @@ class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : Co
             val cache = LivePhotoWidgetFiles.cache(applicationContext)
             val prefs = LivePhotoWidgetFiles.preferences(applicationContext)
             if (photoId.isBlank()) {
+                if (prefs.getString("code", null) != code) return Result.success()
                 withContext(Dispatchers.IO) {
                     cache.delete()
                     LivePhotoWidgetFiles.preview(applicationContext).delete()
@@ -560,6 +571,7 @@ class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : Co
                 ?: content.document("thumbnail").get(Source.SERVER).await().getBlob("image")?.toBytes()
                 ?: return Result.retry()
             if (bytes.isEmpty() || bytes.size > LIVE_WIDGET_MAX_IMAGE_BYTES) return Result.failure()
+            if (prefs.getString("code", null) != code) return Result.success()
 
             withContext(Dispatchers.IO) {
                 cache.parentFile?.mkdirs()
