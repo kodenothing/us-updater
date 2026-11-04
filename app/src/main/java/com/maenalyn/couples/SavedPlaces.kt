@@ -53,6 +53,7 @@ object PlacesRepo {
     private fun placeEvents(code: String) = couple(code).collection("placeEvents")
 
     fun observePlaces(code: String) = kotlinx.coroutines.flow.callbackFlow<List<SavedPlace>> {
+        var lastKnownPlaces: List<SavedPlace> = emptyList()
         val registration = places(code).orderBy("createdAt").addSnapshotListener { snapshot, error ->
             if (error != null) {
                 close(error)
@@ -72,7 +73,20 @@ object PlacesRepo {
                     createdAtMillis = doc.getLong("createdAt") ?: 0L
                 )
             }
-            trySend(result)
+
+            // Avoid dropping saved pins when the listener first reports an empty local cache.
+            // Explicit deletes (pending local writes) and confirmed empty server results clear them.
+            val isUnconfirmedCachedEmpty = snapshot?.metadata?.isFromCache == true &&
+                !snapshot.metadata.hasPendingWrites &&
+                result.isEmpty() &&
+                lastKnownPlaces.isNotEmpty()
+
+            if (isUnconfirmedCachedEmpty) {
+                trySend(lastKnownPlaces)
+            } else {
+                lastKnownPlaces = result
+                trySend(result)
+            }
         }
         awaitClose { registration.remove() }
     }
