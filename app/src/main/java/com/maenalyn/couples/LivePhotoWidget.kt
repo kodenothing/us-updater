@@ -96,6 +96,7 @@ data class LivePhotoWidgetState(
 private object LivePhotoWidgetFiles {
     fun root(context: Context) = File(context.filesDir, "live_photo_widget")
     fun cache(context: Context) = File(root(context), "current.jpg")
+    fun preview(context: Context) = File(root(context), "preview.jpg")
     fun uploads(context: Context) = File(root(context), "uploads")
     fun preferences(context: Context) = context.getSharedPreferences("us", Context.MODE_PRIVATE)
 }
@@ -239,9 +240,9 @@ object LivePhotoWidgetRepo {
     }
 
     suspend fun loadThumbnail(context: Context, code: String, id: String): Bitmap? {
-        val cached = LivePhotoWidgetFiles.cache(context)
+        val cached = LivePhotoWidgetFiles.preview(context)
         val prefs = LivePhotoWidgetFiles.preferences(context)
-        if (cached.exists() && prefs.getString("livePhotoWidgetCachedId", null) == id) {
+        if (cached.exists() && prefs.getString("livePhotoWidgetPreviewCachedId", null) == id) {
             BitmapFactory.decodeFile(cached.absolutePath)?.let { return it }
         }
         val snapshot = getBlob(code, id, "thumbnail").await()
@@ -257,7 +258,7 @@ object LivePhotoWidgetRepo {
                 cached.writeBytes(bytes)
                 temporary.delete()
             }
-            prefs.edit().putString("livePhotoWidgetCachedId", id).apply()
+            prefs.edit().putString("livePhotoWidgetPreviewCachedId", id).apply()
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
     }
@@ -535,8 +536,14 @@ class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : Co
             val cache = LivePhotoWidgetFiles.cache(applicationContext)
             val prefs = LivePhotoWidgetFiles.preferences(applicationContext)
             if (photoId.isBlank()) {
-                withContext(Dispatchers.IO) { cache.delete() }
-                prefs.edit().remove("livePhotoWidgetCachedId").apply()
+                withContext(Dispatchers.IO) {
+                    cache.delete()
+                    LivePhotoWidgetFiles.preview(applicationContext).delete()
+                }
+                prefs.edit()
+                    .remove("livePhotoWidgetCachedId")
+                    .remove("livePhotoWidgetPreviewCachedId")
+                    .apply()
                 LivePhotoWidgetProvider.updateAll(applicationContext, scheduleSync = false)
                 return Result.success()
             }
@@ -550,9 +557,9 @@ class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : Co
                 .collection("couples").document(code)
                 .collection("livePhotoWidgetPhotos").document(photoId)
                 .collection("content")
-            val thumb = content.document("thumbnail").get(Source.SERVER).await()
-            val bytes = thumb.getBlob("image")?.toBytes()
-                ?: content.document("image").get(Source.SERVER).await().getBlob("image")?.toBytes()
+            val image = content.document("image").get(Source.SERVER).await()
+            val bytes = image.getBlob("image")?.toBytes()
+                ?: content.document("thumbnail").get(Source.SERVER).await().getBlob("image")?.toBytes()
                 ?: return Result.retry()
             if (bytes.isEmpty() || bytes.size > LIVE_WIDGET_MAX_IMAGE_BYTES) return Result.failure()
 
@@ -625,7 +632,10 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
         fun clearLocalCache(context: Context) {
             WorkManager.getInstance(context).cancelAllWorkByTag("live-photo-widget")
             LivePhotoWidgetFiles.root(context).deleteRecursively()
-            LivePhotoWidgetFiles.preferences(context).edit().remove("livePhotoWidgetCachedId").apply()
+            LivePhotoWidgetFiles.preferences(context).edit()
+                .remove("livePhotoWidgetCachedId")
+                .remove("livePhotoWidgetPreviewCachedId")
+                .apply()
             updateAll(context, scheduleSync = false)
         }
 
