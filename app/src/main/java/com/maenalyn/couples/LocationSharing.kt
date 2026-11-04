@@ -60,7 +60,7 @@ object LocationRepo {
             // Do not briefly erase markers when Firestore first emits an empty cache snapshot.
             // An explicit local delete or an empty server snapshot is still allowed to clear them.
             val isUnconfirmedCachedEmpty = snapshot?.metadata?.isFromCache == true &&
-                !snapshot.metadata.hasPendingWrites &&
+                !snapshot.metadata.hasPendingWrites() &&
                 result.isEmpty() &&
                 lastKnownLocations.isNotEmpty()
 
