@@ -21,8 +21,8 @@ android {
         applicationId = "com.maenalyn.couples"
         minSdk = 26
         targetSdk = 34
-        versionCode = 20
-        versionName = "2.4.7"
+        versionCode = 21
+        versionName = "2.4.8"
     }
 
     signingConfigs {
@@ -65,6 +65,9 @@ dependencies {
     implementation("androidx.fragment:fragment-ktx:1.8.3")
     implementation("androidx.biometric:biometric:1.1.0")
     implementation("androidx.work:work-runtime-ktx:2.9.1")
+    implementation("androidx.camera:camera-camera2:1.6.2")
+    implementation("androidx.camera:camera-lifecycle:1.6.2")
+    implementation("androidx.camera:camera-view:1.6.2")
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.maplibre.gl:android-sdk:11.11.0")
     implementation("io.coil-kt:coil-compose:2.7.0")
