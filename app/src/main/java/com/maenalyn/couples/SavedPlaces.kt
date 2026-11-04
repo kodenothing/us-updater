@@ -77,7 +77,7 @@ object PlacesRepo {
             // Avoid dropping saved pins when the listener first reports an empty local cache.
             // Explicit deletes (pending local writes) and confirmed empty server results clear them.
             val isUnconfirmedCachedEmpty = snapshot?.metadata?.isFromCache == true &&
-                !snapshot.metadata.hasPendingWrites &&
+                !snapshot.metadata.hasPendingWrites() &&
                 result.isEmpty() &&
                 lastKnownPlaces.isNotEmpty()
 
