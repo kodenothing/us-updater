@@ -726,7 +726,12 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
         }
 
         if (visibleAlbums.isEmpty()) {
-            Column(Modifier.fillMaxSize(), horizontalAlignment = Alignment.CenterHorizontally, verticalArrangement = Arrangement.Center) {
+            Column(
+                Modifier.fillMaxSize().verticalScroll(rememberScrollState()),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(14.dp)
+            ) {
+                LivePhotoWidgetCard(code = vm.code.value.orEmpty(), uid = Repo.currentUid().orEmpty())
                 Icon(Icons.Filled.Image, null, tint = cs.primary, modifier = Modifier.size(44.dp))
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -753,6 +758,9 @@ fun MemoriesTab(vm: MainVm, memories: List<Memory>, pad: PaddingValues) {
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
+                item(span = { GridItemSpan(maxLineSpan) }, key = "live-photo-widget") {
+                    LivePhotoWidgetCard(code = vm.code.value.orEmpty(), uid = Repo.currentUid().orEmpty())
+                }
                 gridItems(visibleAlbums, key = { it.id }) { album ->
                     val selectedCoverId = albumCovers[album.id]
                     val cover = album.photos.firstOrNull { it.id == selectedCoverId } ?: album.photos.first()
