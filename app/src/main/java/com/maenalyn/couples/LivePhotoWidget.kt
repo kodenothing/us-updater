@@ -23,7 +23,6 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.weight
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
@@ -615,7 +614,10 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onDisabled(context: Context) {
-        WorkManager.getInstance(context).cancelAllWorkByTag("live-photo-widget")
+        val code = context.getSharedPreferences("us", Context.MODE_PRIVATE).getString("code", null)
+        if (!code.isNullOrBlank()) {
+            WorkManager.getInstance(context).cancelUniqueWork("live-photo-widget-periodic-$code")
+        }
         super.onDisabled(context)
     }
 
