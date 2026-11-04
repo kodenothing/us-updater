@@ -298,13 +298,28 @@ fun OurMapTab(
 
     val myLatest = sharedLocations.firstOrNull { it.uid == currentUid }
     val partnerLatest = sharedLocations.firstOrNull { it.uid == partnerUid }
+
+    // Fresh fixes are required for distance and routing, but an older saved fix must
+    // remain visible as a last-known marker while the Firestore sharing document exists.
     val myLocation = myLatest.takeIf(::isFresh)
     val partnerLocation = partnerLatest.takeIf(::isFresh)
     val bothSharing = myLocation != null && partnerLocation != null
     val distanceMeters = if (bothSharing) distanceBetween(myLocation!!, partnerLocation!!) else null
     val livePins = listOfNotNull(
-        myLocation?.let { MapPin(it.uid, it.latitude, it.longitude, myName, isMine = true) },
-        partnerLocation?.let { MapPin(it.uid, it.latitude, it.longitude, partnerName, isMine = false) }
+        myLatest?.let {
+            MapPin(
+                it.uid, it.latitude, it.longitude,
+                if (isFresh(it)) myName else "$myName · last known",
+                isMine = true
+            )
+        },
+        partnerLatest?.let {
+            MapPin(
+                it.uid, it.latitude, it.longitude,
+                if (isFresh(it)) partnerName else "$partnerName · last known",
+                isMine = false
+            )
+        }
     )
     val placePins = savedPlaces.map {
         MapPin("place:${it.id}", it.latitude, it.longitude, it.name, isPlace = true)
@@ -1093,11 +1108,24 @@ private fun MapLibreSurface(
                 )
                 markers[pin.uid] = libreMap.addMarker(
                     MarkerOptions().position(target).title(pin.title)
-                        .snippet(if (pin.isPlace) "Shared place" else "Live shared location")
+                        .snippet(
+                            when {
+                                pin.isPending -> "Selected map location"
+                                pin.isPlace -> "Saved shared place"
+                                pin.title.endsWith(" · last known") -> "Last known location · updates delayed"
+                                else -> "Live shared location"
+                            }
+                        )
                         .icon(markerIcon)
                 )
             } else {
                 marker.title = pin.title
+                marker.snippet = when {
+                    pin.isPending -> "Selected map location"
+                    pin.isPlace -> "Saved shared place"
+                    pin.title.endsWith(" · last known") -> "Last known location · updates delayed"
+                    else -> "Live shared location"
+                }
                 val start = marker.position
                 if (kotlin.math.abs(start.latitude - target.latitude) > 0.000001 ||
                     kotlin.math.abs(start.longitude - target.longitude) > 0.000001) {
