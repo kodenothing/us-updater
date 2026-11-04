@@ -154,7 +154,7 @@ class LocationSharingService : Service() {
                 if (snapshot == null) return@addSnapshotListener
                 // Cached membership can be stale after reconnects. Only an authoritative
                 // server snapshot (or a local pending membership write) may stop sharing.
-                if (snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites) {
+                if (snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites()) {
                     return@addSnapshotListener
                 }
                 if (!snapshot.exists() || members?.contains(uid) != true) {
