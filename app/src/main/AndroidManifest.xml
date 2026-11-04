@@ -48,6 +48,17 @@
             android:enabled="true"
             android:exported="false" />
         <receiver
+            android:name=".LivePhotoWidgetProvider"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_OPTIONS_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/live_photo_widget_info" />
+        </receiver>
+        <receiver
             android:name=".DaysTogetherWidgetProvider"
             android:exported="true">
             <intent-filter>
