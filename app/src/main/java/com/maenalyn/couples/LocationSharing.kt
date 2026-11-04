@@ -35,6 +35,7 @@ object LocationRepo {
         db.collection("couples").document(code).collection("locations")
 
     fun observeLocations(code: String): Flow<List<SharedLocation>> = callbackFlow {
+        var lastKnownLocations: List<SharedLocation> = emptyList()
         val registration = locations(code).addSnapshotListener { snapshot, error ->
             if (error != null) {
                 close(error)
@@ -43,8 +44,10 @@ object LocationRepo {
             val result = snapshot?.documents.orEmpty().mapNotNull { document ->
                 val latitude = document.getDouble("latitude") ?: return@mapNotNull null
                 val longitude = document.getDouble("longitude") ?: return@mapNotNull null
-                val updatedAt = document.getTimestamp("updatedAt")?.toDate()?.time
-                    ?: return@mapNotNull null
+                val updatedAt = document.getTimestamp(
+                    "updatedAt",
+                    com.google.firebase.firestore.DocumentSnapshot.ServerTimestampBehavior.ESTIMATE
+                )?.toDate()?.time ?: return@mapNotNull null
                 SharedLocation(
                     uid = document.id,
                     latitude = latitude,
@@ -53,7 +56,20 @@ object LocationRepo {
                     updatedAtMillis = updatedAt
                 )
             }
-            trySend(result)
+
+            // Do not briefly erase markers when Firestore first emits an empty cache snapshot.
+            // An explicit local delete or an empty server snapshot is still allowed to clear them.
+            val isUnconfirmedCachedEmpty = snapshot?.metadata?.isFromCache == true &&
+                !snapshot.metadata.hasPendingWrites() &&
+                result.isEmpty() &&
+                lastKnownLocations.isNotEmpty()
+
+            if (isUnconfirmedCachedEmpty) {
+                trySend(lastKnownLocations)
+            } else {
+                lastKnownLocations = result
+                trySend(result)
+            }
         }
         awaitClose { registration.remove() }
     }
@@ -99,10 +115,10 @@ class ForegroundLocationPublisher(context: Context) {
         val lowPower = powerManager.isPowerSaveMode || batteryLevel in 0..20
         val interval = if (lowPower) 60_000L else 20_000L
         val minInterval = if (lowPower) 30_000L else 12_000L
-        val minDistance = if (lowPower) 40f else 12f
+        // Do not gate updates by movement: a stationary phone still needs to refresh
+        // its shared-location timestamp so the partner's marker remains current.
         val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, interval)
             .setMinUpdateIntervalMillis(minInterval)
-            .setMinUpdateDistanceMeters(minDistance)
             .setWaitForAccurateLocation(false)
             .build()
         try {

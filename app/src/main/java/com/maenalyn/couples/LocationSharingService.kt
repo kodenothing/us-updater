@@ -152,7 +152,11 @@ class LocationSharingService : Service() {
                 if (error != null) return@addSnapshotListener
                 val members = snapshot?.get("members") as? List<*>
                 if (snapshot == null) return@addSnapshotListener
-                if (snapshot.metadata.isFromCache && !snapshot.exists()) return@addSnapshotListener
+                // Cached membership can be stale after reconnects. Only an authoritative
+                // server snapshot (or a local pending membership write) may stop sharing.
+                if (snapshot.metadata.isFromCache && !snapshot.metadata.hasPendingWrites()) {
+                    return@addSnapshotListener
+                }
                 if (!snapshot.exists() || members?.contains(uid) != true) {
                     stopSharingAndSelf(disableSharing = true)
                 }
@@ -173,10 +177,10 @@ class LocationSharingService : Service() {
 
         val interval = if (lowPower) 60_000L else 20_000L
         val minInterval = if (lowPower) 30_000L else 12_000L
-        val minDistance = if (lowPower) 40f else 12f
+        // Publish periodic heartbeats even when the device is stationary.
+        // The map keeps the last-known pin visible, but regular fixes keep it live.
         val request = LocationRequest.Builder(Priority.PRIORITY_BALANCED_POWER_ACCURACY, interval)
             .setMinUpdateIntervalMillis(minInterval)
-            .setMinUpdateDistanceMeters(minDistance)
             .setWaitForAccurateLocation(false)
             .build()
 
