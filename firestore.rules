@@ -216,7 +216,7 @@ service cloud.firestore {
             'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt'
           ])
           && request.resource.data.keys().hasOnly([
-            'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt', 'favorite', 'sizeBytes', 'thumbnailBytes', 'originalCreatedBy'
+            'caption', 'fileName', 'photoUrl', 'storagePath', 'storageMode', 'status', 'createdBy', 'createdAt', 'albumId', 'favorite', 'sizeBytes', 'thumbnailBytes', 'originalCreatedBy'
           ])
           && request.resource.data.caption is string
           && request.resource.data.caption.size() <= 280
@@ -228,6 +228,11 @@ service cloud.firestore {
           && request.resource.data.status == 'pending'
           && request.resource.data.createdBy == request.auth.uid
           && request.resource.data.createdAt is int
+          && (!('albumId' in request.resource.data.keys()) || (
+            request.resource.data.albumId is string
+            && request.resource.data.albumId.size() > 0
+            && request.resource.data.albumId.size() <= 128
+          ))
           && (!('favorite' in request.resource.data.keys()) || request.resource.data.favorite is bool)
           && (!('sizeBytes' in request.resource.data.keys()) || (request.resource.data.sizeBytes is int && request.resource.data.sizeBytes <= 716800))
           && (!('thumbnailBytes' in request.resource.data.keys()) || (request.resource.data.thumbnailBytes is int && request.resource.data.thumbnailBytes <= 81920))
@@ -250,6 +255,11 @@ service cloud.firestore {
         allow update: if isCoupleMember(cid)
           && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['favorite'])
           && request.resource.data.favorite is bool;
+        allow update: if isCoupleMember(cid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['albumId'])
+          && request.resource.data.albumId is string
+          && request.resource.data.albumId.size() > 0
+          && request.resource.data.albumId.size() <= 128;
         allow delete: if isCoupleMember(cid);
 
         match /content/{contentId} {
@@ -273,13 +283,39 @@ service cloud.firestore {
         }
       }
 
-      // Shared custom cover selection for the monthly Memories albums.
-      // Only couple members can read or change these shared cover references.
+      match /memoryAlbums/{albumId} {
+        allow read: if isCoupleMember(cid);
+
+        allow create: if isCoupleMember(cid)
+          && request.resource.data.keys().hasAll(['name', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['name', 'createdBy', 'createdAt', 'updatedBy', 'updatedAt'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 48
+          && request.resource.data.createdBy == request.auth.uid
+          && request.resource.data.createdAt is int
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt is int;
+
+        allow update: if isCoupleMember(cid)
+          && request.resource.data.diff(resource.data).affectedKeys().hasOnly(['name', 'updatedBy', 'updatedAt'])
+          && request.resource.data.name is string
+          && request.resource.data.name.size() > 0
+          && request.resource.data.name.size() <= 48
+          && request.resource.data.createdBy == resource.data.createdBy
+          && request.resource.data.createdAt == resource.data.createdAt
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt is int;
+
+        allow delete: if isCoupleMember(cid);
+      }
+
+      // Shared custom cover selection for Memories albums.
       match /memoryAlbumCovers/{albumId} {
         allow read: if isCoupleMember(cid);
 
         allow create, update: if isCoupleMember(cid)
-          && albumId.matches('^[0-9]{4}-(0[1-9]|1[0-2])$')
+          && albumId.matches('^[A-Za-z0-9_-]{1,60}$')
           && request.resource.data.keys().hasAll(['coverMemoryId', 'updatedBy', 'updatedAt'])
           && request.resource.data.keys().hasOnly(['coverMemoryId', 'updatedBy', 'updatedAt'])
           && request.resource.data.coverMemoryId is string

@@ -39,7 +39,7 @@ object BackupManager {
     private const val KEY_BITS = 256
     private const val MAX_BACKUP_BYTES = 200L * 1024L * 1024L
     private val magic = "USBACKUP1".toByteArray(Charsets.US_ASCII)
-    private val collections = listOf("items", "events", "notes", "activity", "memories", "memoryAlbumCovers", "places")
+    private val collections = listOf("items", "events", "notes", "activity", "memories", "memoryAlbums", "memoryAlbumCovers", "places")
 
     data class BackupResult(val restoredRecords: Int, val restoredMemories: Int, val skippedExisting: Int)
     data class BackupPreview(
@@ -348,7 +348,7 @@ object BackupManager {
             var restoredMemories = 0
             var skippedExisting = 0
 
-            for (name in listOf("items", "events", "notes", "activity", "memoryAlbumCovers", "places")) {
+            for (name in listOf("items", "events", "notes", "activity", "memoryAlbums", "memoryAlbumCovers", "places")) {
                 val array = allData.optJSONArray(name) ?: JSONArray()
                 val pending = mutableListOf<Pair<String, Map<String, Any?>>>()
                 for (i in 0 until array.length()) {
@@ -378,6 +378,11 @@ object BackupManager {
                             data["actorUid"] = uid
                             if (originalAuthor in currentMembers) data["originalActorUid"] =
                                 originalAuthor!!
+                        }
+
+                        "memoryAlbums" -> {
+                            data["createdBy"] = uid
+                            data["updatedBy"] = uid
                         }
 
                         "memoryAlbumCovers" -> {
@@ -440,6 +445,11 @@ object BackupManager {
                 }
                 val oldData = jsonObjectToMap(record.getJSONObject("data"))
                 val originalAuthor = oldData["createdBy"] as? String
+                val createdAt = (oldData["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
+                val fallbackAlbumId = java.time.YearMonth.from(
+                    java.time.Instant.ofEpochMilli(createdAt).atZone(java.time.ZoneId.systemDefault()).toLocalDate()
+                ).toString()
+                val albumId = (oldData["albumId"] as? String)?.takeIf { it.isNotBlank() } ?: fallbackAlbumId
                 val bytes = imageFile.readBytes()
                 require(bytes.isNotEmpty() && bytes.size <= MAX_MEMORY_IMAGE_BYTES) { "A photo in this backup is outside the supported size limit." }
                 val thumbFile = entries[record.optString("thumbnailEntry")]
@@ -457,15 +467,13 @@ object BackupManager {
                         "storageMode" to "firestore_blob",
                         "status" to "pending",
                         "createdBy" to uid,
-                        "createdAt" to ((oldData["createdAt"] as? Number)?.toLong()
-                            ?: System.currentTimeMillis()),
+                        "createdAt" to createdAt,
+                        "albumId" to albumId,
                         "favorite" to (oldData["favorite"] as? Boolean ?: false),
                         "sizeBytes" to 0L,
                         "thumbnailBytes" to 0L,
                         "originalCreatedBy" to originalAuthor
                     ).filterValues { it != null }).await()
-                val createdAt =
-                    (oldData["createdAt"] as? Number)?.toLong() ?: System.currentTimeMillis()
                 FeatureRepo.uploadMemoryBlob(code, id, uid, bytes, createdAt).await()
                 val finalThumb = thumbBytes ?: createThumbnailFallback(bytes)
                 FeatureRepo.uploadMemoryThumbnail(code, id, uid, finalThumb, createdAt).await()
