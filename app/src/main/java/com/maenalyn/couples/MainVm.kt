@@ -133,6 +133,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
         viewModelScope.launch {
             code.collectLatest { c ->
                 if (c == null) {
+                    LivePhotoWidgetProvider.clearLocalCache(getApplication())
                     couple.value = null
                     coupleLoadError.value = null
                     myNickname.value = ""
