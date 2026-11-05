@@ -594,9 +594,25 @@ internal fun UsChatScreen(
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
                     itemsIndexed(timelineMessages, key = { _, message -> message.id }) { _, message ->
+                        val mine = message.senderUid == currentUid
+                        val partnerCursor = partnerReadState
+                        val latestSeenOwnMessageId = partnerCursor?.let { cursor ->
+                            timelineMessages.lastOrNull { candidate ->
+                                candidate.senderUid == currentUid &&
+                                    candidate.deliveryState == null &&
+                                    cursor.lastReadMessageCreatedAt != null &&
+                                    compareChatPosition(
+                                        candidate.createdAt,
+                                        candidate.id,
+                                        cursor.lastReadMessageCreatedAt,
+                                        cursor.lastReadMessageId.orEmpty()
+                                    ) <= 0
+                            }?.id
+                        }
                         ChatMessageBubble(
                             message = message,
-                            mine = message.senderUid == currentUid,
+                            mine = mine,
+                            seen = mine && message.id == latestSeenOwnMessageId,
                             onRetry = ::retryOutboxMessage
                         )
                     }
