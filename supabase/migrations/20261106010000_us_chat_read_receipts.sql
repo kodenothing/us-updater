@@ -15,8 +15,13 @@ declare
     v_new_created_at timestamptz;
 begin
     if old.last_read_message_id is null
-       or new.last_read_message_id is null
        or old.last_read_message_id = new.last_read_message_id then
+        return new;
+    end if;
+
+    -- A cursor may not be cleared once it has advanced.
+    if new.last_read_message_id is null then
+        new.last_read_message_id := old.last_read_message_id;
         return new;
     end if;
 
