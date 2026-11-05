@@ -327,7 +327,7 @@ private fun CalendarEventEditor(
                         value = when (reminder) { 0 -> "No reminder"; 10 -> "10 minutes before"; 60 -> "1 hour before"; 1440 -> "1 day before"; else -> "No reminder" },
                         onValueChange = {}, readOnly = true, label = { Text("Reminder") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedReminder) },
-                        modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true).fillMaxWidth()
+                        modifier = Modifier.menuAnchor(MenuAnchorType.PrimaryNotEditable, enabled = true).fillMaxWidth()
                     )
                     ExposedDropdownMenu(expanded = expandedReminder, onDismissRequest = { expandedReminder = false }) {
                         listOf(0 to "No reminder", 10 to "10 minutes before", 60 to "1 hour before", 1440 to "1 day before").forEach { (value, label) ->
