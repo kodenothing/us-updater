@@ -102,7 +102,46 @@ internal fun UsChatScreen(
         loading = messages.isEmpty()
         error = null
         try {
-            val room = UsChatRepository.findRoom(coupleCode)
+            val localState = withContext(Dispatchers.IO) {
+                val cachedRoomId = UsChatOutboxStore.findCachedRoomId(
+                    context,
+                    coupleCode,
+                    currentUid
+                )
+                val savedOutbox = UsChatOutboxStore.listForCouple(
+                    context,
+                    coupleCode,
+                    currentUid
+                )
+                cachedRoomId to savedOutbox
+            }
+            roomId = localState.first
+            outboxMessages = localState.second
+
+            val room = try {
+                UsChatRepository.findRoom(coupleCode)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                val cachedRoomId = localState.first
+                if (cachedRoomId == null) throw failure
+
+                // The room was resolved during an earlier online session.
+                // Keep the local conversation usable while WorkManager waits
+                // for connectivity to return.
+                UsChatOutboxScheduler.enqueuePending(context, cachedRoomId, currentUid)
+                error = "Offline. Messages are saved on this device and will send when you reconnect."
+                return@LaunchedEffect
+            }
+
+            withContext(Dispatchers.IO) {
+                UsChatOutboxStore.cacheRoomMapping(
+                    context,
+                    coupleCode,
+                    currentUid,
+                    room.id
+                )
+            }
             roomId = room.id
 
             val page = UsChatRepository.loadLatestMessages(room.id)
@@ -287,6 +326,7 @@ internal fun UsChatScreen(
                     UsChatOutboxStore.insert(
                         context = context,
                         roomId = activeRoomId,
+                        coupleCode = coupleCode,
                         senderUid = currentUid,
                         body = body,
                         clientMessageId = clientMessageId
