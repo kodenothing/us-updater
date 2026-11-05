@@ -193,6 +193,10 @@ internal fun UsChatScreen(
         suspend fun syncLatest() {
             val page = UsChatRepository.loadLatestMessages(activeRoomId)
             messages = mergeChatTimeline(messages, page.messages)
+            if (!hasInitialPage) {
+                hasOlderMessages = page.hasMore
+                hasInitialPage = true
+            }
             val confirmedIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
             outboxMessages = withContext(Dispatchers.IO) {
                 UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
