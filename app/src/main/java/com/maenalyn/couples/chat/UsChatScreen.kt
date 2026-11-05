@@ -293,7 +293,7 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.markPending(context, clientMessageId)
                 val queued = UsChatOutboxStore.forRoom(context, message.roomId)
                 messages = mergeChatTimeline(messages, emptyList(), queued)
-                UsChatOutboxScheduler.enqueue(context, clientMessageId)
+                UsChatOutboxScheduler.enqueue(context, message.roomId, clientMessageId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -328,7 +328,7 @@ internal fun UsChatScreen(
                 val pending = UsChatOutboxStore.forRoom(context, activeRoomId)
                 messages = mergeChatTimeline(messages, emptyList(), pending)
                 draft = ""
-                UsChatOutboxScheduler.enqueue(context, queued.clientMessageId)
+                UsChatOutboxScheduler.enqueue(context, activeRoomId, queued.clientMessageId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
