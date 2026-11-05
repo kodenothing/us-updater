@@ -101,6 +101,14 @@ internal fun UsChatScreen(
 
             val page = UsChatRepository.loadLatestMessages(room.id)
             val queued = UsChatOutboxStore.forRoom(context, room.id)
+                .filter { it.senderUid == currentUid }
+            if (!hasInitialPage) {
+                // Recover a message saved locally if the process stopped in
+                // the small window between SQLite persistence and Work enqueue.
+                queued.filter { it.status == UsChatOutboxMessage.STATUS_PENDING }.forEach {
+                    UsChatOutboxScheduler.enqueue(context, room.id, it.clientMessageId)
+                }
+            }
             val confirmedClientIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
             queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
                 UsChatOutboxStore.delete(context, it.clientMessageId)
@@ -145,6 +153,7 @@ internal fun UsChatScreen(
         suspend fun syncLatest() {
             val page = UsChatRepository.loadLatestMessages(activeRoomId)
             val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
+                .filter { it.senderUid == currentUid }
             val confirmedClientIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
             queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
                 UsChatOutboxStore.delete(context, it.clientMessageId)
@@ -269,6 +278,7 @@ internal fun UsChatScreen(
             try {
                 val olderPage = UsChatRepository.loadMessagesBefore(activeRoomId, cursor)
                 val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
+                    .filter { it.senderUid == currentUid }
                 val confirmedClientIds = olderPage.messages.mapNotNull { it.clientMessageId }.toSet()
                 queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
                     UsChatOutboxStore.delete(context, it.clientMessageId)
@@ -292,6 +302,7 @@ internal fun UsChatScreen(
             try {
                 UsChatOutboxStore.markPending(context, clientMessageId)
                 val queued = UsChatOutboxStore.forRoom(context, message.roomId)
+                    .filter { it.senderUid == currentUid }
                 messages = mergeChatTimeline(messages, emptyList(), queued)
                 UsChatOutboxScheduler.enqueue(context, message.roomId, clientMessageId)
             } catch (cancelled: CancellationException) {
