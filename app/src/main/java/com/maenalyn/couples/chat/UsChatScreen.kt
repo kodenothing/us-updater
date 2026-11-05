@@ -122,8 +122,15 @@ internal fun UsChatScreen(
             try {
                 UsChatRepository.sendMessage(activeRoomId, currentUid, body)
                 draft = ""
-                messages = UsChatRepository.loadMessages(activeRoomId)
-                error = null
+                try {
+                    messages = UsChatRepository.loadMessages(activeRoomId)
+                    error = null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (refreshFailure: Exception) {
+                    error = "Message sent, but the conversation couldn't refresh yet."
+                    refreshTrigger++
+                }
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
