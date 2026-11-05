@@ -25,6 +25,7 @@ import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -32,7 +33,6 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.FilledIconButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -44,25 +44,28 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.RealtimeChannel
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
-import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
+import java.util.UUID
 
 @Composable
 internal fun UsChatScreen(
@@ -72,15 +75,22 @@ internal fun UsChatScreen(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
+    val context = LocalContext.current.applicationContext
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
-    var roomId by remember(coupleCode) { mutableStateOf<String?>(null) }
-    var messages by remember(coupleCode) { mutableStateOf<List<UsChatMessage>>(emptyList()) }
+
+    var roomId by remember(coupleCode, currentUid) { mutableStateOf<String?>(null) }
+    var messages by remember(coupleCode, currentUid) { mutableStateOf<List<UsChatMessage>>(emptyList()) }
     var draft by remember { mutableStateOf("") }
-    var loading by remember(coupleCode) { mutableStateOf(true) }
+    var loading by remember(coupleCode, currentUid) { mutableStateOf(true) }
+    var loadingOlder by remember { mutableStateOf(false) }
+    var hasOlderMessages by remember(coupleCode, currentUid) { mutableStateOf(false) }
     var sending by remember { mutableStateOf(false) }
-    var error by remember(coupleCode) { mutableStateOf<String?>(null) }
+    var error by remember(coupleCode, currentUid) { mutableStateOf<String?>(null) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
+    var partnerReadCursor by remember(coupleCode, currentUid) { mutableStateOf<UsChatRoomRead?>(null) }
+    var realtimeLabel by remember(coupleCode, currentUid) { mutableStateOf("Connecting…") }
+    var hasInitialPage by remember(coupleCode, currentUid) { mutableStateOf(false) }
 
     LaunchedEffect(coupleCode, currentUid, refreshTrigger) {
         loading = messages.isEmpty()
@@ -88,8 +98,17 @@ internal fun UsChatScreen(
         try {
             val room = UsChatRepository.findRoom(coupleCode)
             roomId = room.id
-            messages = UsChatRepository.loadMessages(room.id)
-            error = null
+
+            val page = UsChatRepository.loadLatestMessages(room.id)
+            val queued = UsChatOutboxStore.forRoom(context, room.id)
+            messages = mergeChatTimeline(
+                current = if (hasInitialPage) messages else emptyList(),
+                latestServerPage = page.messages,
+                queuedMessages = queued
+            )
+            hasOlderMessages = hasOlderMessages || page.hasMore
+            hasInitialPage = true
+            partnerReadCursor = UsChatRepository.loadPartnerReadCursor(room.id, currentUid)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -99,23 +118,37 @@ internal fun UsChatScreen(
         }
     }
 
-    // Realtime is the primary update path. Polling remains as a safety net:
-    // every 30 seconds while subscribed, or every 5 seconds if subscription
-    // setup fails. The channel and collector are scoped to this visible screen.
-    LaunchedEffect(roomId) {
+    // 4.2: one room-scoped channel and collectors. The SDK owns WebSocket
+    // reconnection; channel status changes trigger an immediate authoritative
+    // refresh. Polling recovers missed events and covers subscription failures.
+    LaunchedEffect(roomId, currentUid) {
         val activeRoomId = roomId ?: return@LaunchedEffect
         val supabase = SupabaseChatClientProvider.get()
         val channel = supabase.realtime.channel("us-chat-$activeRoomId")
-        val changeFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+
+        val messageChanges = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "chat_messages"
+            filter("room_id", FilterOperator.EQ, activeRoomId)
+        }
+        val readChanges = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
+            table = "chat_room_reads"
             filter("room_id", FilterOperator.EQ, activeRoomId)
         }
 
         var realtimeConnected = false
-        val collector = launch {
-            changeFlow.collect {
+
+        suspend fun syncLatest() {
+            val page = UsChatRepository.loadLatestMessages(activeRoomId)
+            val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
+            messages = mergeChatTimeline(messages, page.messages, queued)
+            hasOlderMessages = hasOlderMessages || page.hasMore
+            partnerReadCursor = UsChatRepository.loadPartnerReadCursor(activeRoomId, currentUid)
+        }
+
+        val messageCollector = launch {
+            messageChanges.collect {
                 try {
-                    messages = UsChatRepository.loadMessages(activeRoomId)
+                    syncLatest()
                     error = null
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -125,38 +158,129 @@ internal fun UsChatScreen(
             }
         }
 
+        val readCollector = launch {
+            readChanges.collect {
+                try {
+                    partnerReadCursor = UsChatRepository.loadPartnerReadCursor(activeRoomId, currentUid)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // The next receipt event or safety poll will refresh the cursor.
+                }
+            }
+        }
+
+        val statusCollector = launch {
+            var wasConnected = false
+            channel.status.collect { status ->
+                realtimeConnected = status == RealtimeChannel.Status.SUBSCRIBED
+                realtimeLabel = if (realtimeConnected) "Live updates" else "Reconnecting…"
+
+                if (realtimeConnected && !wasConnected) {
+                    try {
+                        syncLatest()
+                        error = null
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (failure: Exception) {
+                        error = failure.message ?: "Chat reconnected, but messages couldn't refresh."
+                    }
+                }
+                wasConnected = realtimeConnected
+            }
+        }
+
         try {
             try {
                 channel.subscribe(blockUntilSubscribed = true)
                 realtimeConnected = true
-            } catch (subscribeFailure: Exception) {
-                // Keep chat usable if Realtime is unavailable (e.g. replication
-                // hasn't been enabled yet or the network blocks WebSockets).
-                error = "Live updates unavailable. Checking for messages every few seconds."
+                realtimeLabel = "Live updates"
+                syncLatest()
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (_: Exception) {
+                realtimeConnected = false
+                realtimeLabel = "Checking connection…"
             }
 
             while (isActive) {
                 delay(if (realtimeConnected) 30_000L else 5_000L)
                 try {
-                    messages = UsChatRepository.loadMessages(activeRoomId)
+                    syncLatest()
                     if (!realtimeConnected) {
-                        error = null
+                        realtimeLabel = "Checking connection…"
                     }
+                    error = null
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
                     error = failure.message ?: "Couldn't refresh messages. Check your connection."
+                    realtimeLabel = "Offline · retrying"
                 }
             }
         } finally {
-            collector.cancel()
+            messageCollector.cancel()
+            readCollector.cancel()
+            statusCollector.cancel()
             runCatching { supabase.realtime.removeChannel(channel) }
+        }
+    }
+
+    val latestServerMessage = messages.lastOrNull {
+        !it.isPending && it.sendError == null
+    }
+
+    // 4.3: opening the conversation or receiving a newer server message moves
+    // this member's cursor forward. The partner's cursor is received separately.
+    LaunchedEffect(roomId, currentUid, latestServerMessage?.id, refreshTrigger) {
+        val activeRoomId = roomId ?: return@LaunchedEffect
+        val latest = latestServerMessage ?: return@LaunchedEffect
+        runCatching {
+            UsChatRepository.markRead(activeRoomId, currentUid, latest.id)
         }
     }
 
     LaunchedEffect(messages.lastOrNull()?.id) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
+        }
+    }
+
+    fun loadOlderMessages() {
+        val activeRoomId = roomId ?: return
+        val cursor = messages.firstOrNull { !it.isPending && it.sendError == null } ?: return
+        if (loadingOlder || !hasOlderMessages) return
+
+        scope.launch {
+            loadingOlder = true
+            try {
+                val olderPage = UsChatRepository.loadMessagesBefore(activeRoomId, cursor)
+                val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
+                messages = mergeChatTimeline(messages, olderPage.messages, queued)
+                hasOlderMessages = olderPage.hasMore
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = failure.message ?: "Couldn't load older messages."
+            } finally {
+                loadingOlder = false
+            }
+        }
+    }
+
+    fun retryQueuedMessage(message: UsChatMessage) {
+        val clientMessageId = message.clientMessageId ?: return
+        scope.launch {
+            try {
+                UsChatOutboxStore.markPending(context, clientMessageId)
+                val queued = UsChatOutboxStore.forRoom(context, message.roomId)
+                messages = mergeChatTimeline(messages, emptyList(), queued)
+                UsChatOutboxScheduler.enqueue(context, clientMessageId)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = failure.message ?: "Couldn't retry this message."
+            }
         }
     }
 
@@ -168,29 +292,46 @@ internal fun UsChatScreen(
             error = "Messages must be 4,000 characters or fewer."
             return
         }
+
         scope.launch {
             sending = true
             error = null
             try {
-                UsChatRepository.sendMessage(activeRoomId, currentUid, body)
+                val queued = UsChatOutboxMessage(
+                    clientMessageId = UUID.randomUUID().toString(),
+                    roomId = activeRoomId,
+                    senderUid = currentUid,
+                    body = body,
+                    createdAt = Instant.now().toString(),
+                    status = UsChatOutboxMessage.STATUS_PENDING,
+                    lastError = null
+                )
+                UsChatOutboxStore.enqueue(context, queued)
+                val pending = UsChatOutboxStore.forRoom(context, activeRoomId)
+                messages = mergeChatTimeline(messages, emptyList(), pending)
                 draft = ""
-                try {
-                    messages = UsChatRepository.loadMessages(activeRoomId)
-                    error = null
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (refreshFailure: Exception) {
-                    error = "Message sent, but the conversation couldn't refresh yet."
-                    refreshTrigger++
-                }
+                UsChatOutboxScheduler.enqueue(context, queued.clientMessageId)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = failure.message ?: "Message couldn't be sent. Please try again."
+                error = failure.message ?: "Message couldn't be queued. Please try again."
             } finally {
                 sending = false
             }
         }
+    }
+
+    val partnerReadMessageId = partnerReadCursor?.lastReadMessageId
+    val partnerReadIndex = messages.indexOfFirst { it.id == partnerReadMessageId }
+    val lastSeenMineIndex = if (partnerReadIndex >= 0) {
+        messages.indices.lastOrNull { index ->
+            index <= partnerReadIndex &&
+                messages[index].senderUid == currentUid &&
+                !messages[index].isPending &&
+                messages[index].sendError == null
+        }
+    } else {
+        null
     }
 
     Column(
@@ -221,8 +362,14 @@ internal fun UsChatScreen(
                         modifier = Modifier.padding(start = 4.dp)
                     )
                 }
+                Text(
+                    realtimeLabel,
+                    fontSize = 10.sp,
+                    color = colors.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 15.dp, top = 1.dp)
+                )
             }
-            IconButton(onClick = { refreshTrigger++ }, enabled = !loading) {
+            IconButton(onClick = { refreshTrigger++ }, enabled = !loading && !loadingOlder) {
                 Icon(Icons.Filled.Refresh, contentDescription = "Refresh messages", tint = colors.onSurfaceVariant)
             }
         }
@@ -293,6 +440,23 @@ internal fun UsChatScreen(
                 }
             }
             else -> {
+                if (hasOlderMessages || loadingOlder) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        if (loadingOlder) {
+                            CircularProgressIndicator(modifier = Modifier.size(14.dp), strokeWidth = 2.dp)
+                            Text("Loading older messages…", fontSize = 11.sp, color = colors.onSurfaceVariant, modifier = Modifier.padding(start = 8.dp))
+                        } else {
+                            TextButton(onClick = { loadOlderMessages() }) {
+                                Text("Load older messages", fontSize = 12.sp)
+                            }
+                        }
+                    }
+                }
+
                 LazyColumn(
                     state = listState,
                     modifier = Modifier.fillMaxWidth().weight(1f),
@@ -300,8 +464,14 @@ internal fun UsChatScreen(
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
                     items(messages, key = { it.id }) { message ->
+                        val index = messages.indexOf(message)
                         val mine = message.senderUid == currentUid
-                        ChatMessageBubble(message = message, mine = mine)
+                        ChatMessageBubble(
+                            message = message,
+                            mine = mine,
+                            seen = mine && index == lastSeenMineIndex,
+                            onRetry = { retryQueuedMessage(message) }
+                        )
                     }
                 }
             }
@@ -347,8 +517,37 @@ internal fun UsChatScreen(
     }
 }
 
+private fun mergeChatTimeline(
+    current: List<UsChatMessage>,
+    latestServerPage: List<UsChatMessage>,
+    queuedMessages: List<UsChatOutboxMessage>
+): List<UsChatMessage> {
+    val serverMessages = (current.filter { !it.isPending && it.sendError == null } + latestServerPage)
+        .distinctBy { it.id }
+    val confirmedClientIds = serverMessages.mapNotNull { it.clientMessageId }.toSet()
+    val localMessages = queuedMessages
+        .filterNot { it.clientMessageId in confirmedClientIds }
+        .map { it.asPendingMessage() }
+
+    return (serverMessages + localMessages)
+        .distinctBy { it.clientMessageId ?: it.id }
+        .sortedWith { left, right ->
+            val timeComparison = runCatching {
+                Instant.parse(left.createdAt).compareTo(Instant.parse(right.createdAt))
+            }.getOrElse {
+                left.createdAt.compareTo(right.createdAt)
+            }
+            if (timeComparison != 0) timeComparison else left.id.compareTo(right.id)
+        }
+}
+
 @Composable
-private fun ChatMessageBubble(message: UsChatMessage, mine: Boolean) {
+private fun ChatMessageBubble(
+    message: UsChatMessage,
+    mine: Boolean,
+    seen: Boolean,
+    onRetry: () -> Unit
+) {
     val colors = MaterialTheme.colorScheme
     val bubbleColor = if (mine) colors.primary else colors.surfaceVariant
     val textColor = if (mine) colors.onPrimary else colors.onSurfaceVariant
@@ -385,14 +584,39 @@ private fun ChatMessageBubble(message: UsChatMessage, mine: Boolean) {
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                 )
             }
-            Text(
-                time,
-                color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-                fontSize = 10.sp,
-                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Clip
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
+            ) {
+                Text(
+                    time,
+                    color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip
+                )
+                when {
+                    message.sendError != null -> {
+                        TextButton(onClick = onRetry) {
+                            Text("Not sent · Retry", fontSize = 10.sp, color = colors.error)
+                        }
+                    }
+                    message.isPending -> {
+                        Text(
+                            " · Sending…",
+                            color = colors.onSurfaceVariant,
+                            fontSize = 10.sp
+                        )
+                    }
+                    seen -> {
+                        Text(
+                            " · Seen",
+                            color = colors.primary,
+                            fontSize = 10.sp
+                        )
+                    }
+                }
+            }
         }
     }
 }
