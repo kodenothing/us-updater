@@ -34,6 +34,38 @@ internal data class UsChatMessagePage(
     val hasMore: Boolean
 )
 
+
+@Serializable
+internal data class UsChatReadRecord(
+    @SerialName("room_id")
+    val roomId: String,
+    @SerialName("reader_uid")
+    val readerUid: String,
+    @SerialName("last_read_message_id")
+    val lastReadMessageId: String? = null,
+    @SerialName("last_read_at")
+    val lastReadAt: String
+)
+
+internal data class UsChatReadState(
+    val readerUid: String,
+    val lastReadMessageId: String?,
+    val lastReadMessageCreatedAt: String?,
+    val lastReadAt: String
+)
+
+@Serializable
+private data class UsChatReadInsert(
+    @SerialName("room_id") val roomId: String,
+    @SerialName("reader_uid") val readerUid: String,
+    @SerialName("last_read_message_id") val lastReadMessageId: String
+)
+
+@Serializable
+private data class UsChatReadUpdate(
+    @SerialName("last_read_message_id") val lastReadMessageId: String
+)
+
 @Serializable
 private data class UsChatMessageInsert(
     @SerialName("room_id")
@@ -120,6 +152,82 @@ internal object UsChatRepository {
             messages = rows.take(MESSAGE_PAGE_SIZE).reversed(),
             hasMore = hasMore
         )
+    }
+
+    /**
+     * Read state is room-scoped and RLS limits each write to the current Firebase UID.
+     * The database trigger in the read-receipt migration prevents cursor regression.
+     */
+    suspend fun loadReadStates(roomId: String): List<UsChatReadState> {
+        val client = SupabaseChatClientProvider.get()
+        val records = client.from("chat_room_reads")
+            .select {
+                filter { eq("room_id", roomId) }
+            }
+            .decodeList<UsChatReadRecord>()
+
+        return records.map { record ->
+            val cursorMessage = record.lastReadMessageId?.let { messageId ->
+                client.from("chat_messages")
+                    .select {
+                        filter {
+                            eq("room_id", roomId)
+                            eq("id", messageId)
+                        }
+                        limit(1)
+                    }
+                    .decodeList<UsChatMessage>()
+                    .firstOrNull()
+            }
+            UsChatReadState(
+                readerUid = record.readerUid,
+                lastReadMessageId = record.lastReadMessageId,
+                lastReadMessageCreatedAt = cursorMessage?.createdAt,
+                lastReadAt = record.lastReadAt
+            )
+        }
+    }
+
+    suspend fun advanceReadCursor(
+        roomId: String,
+        readerUid: String,
+        messageId: String
+    ) {
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+        check(!currentUid.isNullOrBlank() && currentUid == readerUid) {
+            "Your Firebase account changed. Reopen Us Chat before updating read status."
+        }
+
+        val client = SupabaseChatClientProvider.get()
+        val existing = client.from("chat_room_reads")
+            .select {
+                filter {
+                    eq("room_id", roomId)
+                    eq("reader_uid", readerUid)
+                }
+                limit(1)
+            }
+            .decodeList<UsChatReadRecord>()
+            .firstOrNull()
+
+        if (existing == null) {
+            client.from("chat_room_reads").insert(
+                UsChatReadInsert(
+                    roomId = roomId,
+                    readerUid = readerUid,
+                    lastReadMessageId = messageId
+                )
+            )
+        } else if (existing.lastReadMessageId != messageId) {
+            client.from("chat_room_reads").update(
+                UsChatReadUpdate(lastReadMessageId = messageId)
+            ) {
+                filter {
+                    eq("room_id", roomId)
+                    eq("reader_uid", readerUid)
+                }
+            }
+        }
     }
 
     /**
