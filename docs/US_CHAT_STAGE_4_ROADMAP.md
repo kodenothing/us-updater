@@ -8,15 +8,39 @@ Make the text conversation dependable before adding reactions, replies, editing,
 
 **Execution rule:** complete and verify one substage at a time. The current active scope is **Stage 4.2 only**. Do not begin more 4.3 work until 4.2 passes its build and two-phone acceptance tests.
 
-## Current status (2026-11-05)
+## Current status and exact stopping point (2026-11-05)
 
-| Substage | Scope | Status |
-|---|---|---|
-| 4.1 | Supabase Realtime subscription and cleanup | Implementation is in the branch; the developer confirmed a successful debug build after the SDK API correction. Database migration and true two-phone live-event behavior still need explicit confirmation. |
-| 4.2 | Synchronization recovery, deduplication, ordering, and pagination | Implementation has been pushed to the feature branch. **Not yet verified by a fresh Gradle build or two-phone tests. This is the active stage.** |
-| 4.3 | Durable offline outbox, idempotent retries, and read receipts | Preliminary code and a database migration exist on the branch, but they are not accepted as complete. Work is paused until 4.2 is accepted. |
+| Substage | Scope | Implementation status | Verification status |
+|---|---|---|---|
+| 4.1 | Supabase Realtime subscription and cleanup | Implemented in the branch. | Developer confirmed a successful debug build after the Supabase Kotlin SDK API correction. Migration application and actual two-phone live-event delivery are not recorded as accepted. |
+| 4.2 | Synchronization recovery, deduplication, ordering, and pagination | Code pushed to the feature branch. | **ACTIVE — developer stopped here.** No fresh Gradle build or two-phone tests have been reported for this implementation. |
+| 4.3 | Durable offline outbox, idempotent retries, and read receipts | Preliminary code and migration already exist in the branch. | **PAUSED — not accepted.** Do not add more 4.3 work until 4.2 passes. |
 
-A successful build of 4.1 does not prove the newer 4.2/4.3 code builds. A successful build also does not prove Realtime, offline recovery, or read receipts work on both phones.
+### Resume checkpoint
+
+- **Current task:** Stage 4.2 only.
+- **Repository:** `kodenothing/us-updater`
+- **Branch:** `feature/us-chat-2.5.0`
+- **Pull request:** [PR #7](https://github.com/kodenothing/us-updater/pull/7), keep draft/unmerged.
+- **Last code implementation checkpoint:** `53f8900476283e0f0a0729af2602a2a532bcd613`. Documentation commits were made after this code checkpoint, so pull the latest branch tip.
+- **What is already in the 4.2 implementation:** merge latest server pages into the loaded timeline, deduplicate by message/client ID, sort consistently by `created_at` and ID, load older messages by a `created_at` + ID cursor, watch Realtime channel status, refresh after reconnect, and retain polling recovery.
+- **What has not been confirmed:** current 4.2 code compiles, pagination has no gaps, reconnect catches missed events, both phones see consistent ordering, and screen lifecycle does not create duplicate collectors.
+
+**Next action — pull and build, then stop for the developer's result:**
+
+```powershell
+git fetch origin
+git pull --ff-only origin feature/us-chat-2.5.0
+.\gradlew.bat clean assembleDebug
+```
+
+Do not start Stage 4.3, modify unrelated files, or apply a new migration as part of the next step. Review the actual build output first.
+
+### Work deliberately left paused
+
+Stage 4.3 code for the SQLite outbox, WorkManager sender, client message UUID, idempotent database migration, and read-cursor UI was pushed during earlier combined work. This is groundwork only. It has not been accepted, and it is outside the current task. Keep it untouched while completing Stage 4.2.
+
+A successful build of 4.1 does not prove the newer 4.2 implementation builds. A successful build also does not prove Realtime or synchronization works on both phones.
 
 ---
 
