@@ -603,7 +603,7 @@ fun OurMapTab(
                             )
                         }
 
-                        HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                        HorizontalHorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -629,7 +629,7 @@ fun OurMapTab(
                             )
                         }
 
-                        Divider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                        HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
