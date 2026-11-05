@@ -101,12 +101,17 @@ internal fun UsChatScreen(
 
             val page = UsChatRepository.loadLatestMessages(room.id)
             val queued = UsChatOutboxStore.forRoom(context, room.id)
+            val confirmedClientIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
+            queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
+                UsChatOutboxStore.delete(context, it.clientMessageId)
+            }
+            val remainingQueued = queued.filterNot { it.clientMessageId in confirmedClientIds }
             messages = mergeChatTimeline(
                 current = if (hasInitialPage) messages else emptyList(),
                 latestServerPage = page.messages,
-                queuedMessages = queued
+                queuedMessages = remainingQueued
             )
-            hasOlderMessages = hasOlderMessages || page.hasMore
+            if (!hasInitialPage) hasOlderMessages = page.hasMore
             hasInitialPage = true
             partnerReadCursor = UsChatRepository.loadPartnerReadCursor(room.id, currentUid)
         } catch (cancelled: CancellationException) {
@@ -140,8 +145,12 @@ internal fun UsChatScreen(
         suspend fun syncLatest() {
             val page = UsChatRepository.loadLatestMessages(activeRoomId)
             val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
-            messages = mergeChatTimeline(messages, page.messages, queued)
-            hasOlderMessages = hasOlderMessages || page.hasMore
+            val confirmedClientIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
+            queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
+                UsChatOutboxStore.delete(context, it.clientMessageId)
+            }
+            val remainingQueued = queued.filterNot { it.clientMessageId in confirmedClientIds }
+            messages = mergeChatTimeline(messages, page.messages, remainingQueued)
             partnerReadCursor = UsChatRepository.loadPartnerReadCursor(activeRoomId, currentUid)
         }
 
@@ -235,8 +244,12 @@ internal fun UsChatScreen(
     LaunchedEffect(roomId, currentUid, latestServerMessage?.id, refreshTrigger) {
         val activeRoomId = roomId ?: return@LaunchedEffect
         val latest = latestServerMessage ?: return@LaunchedEffect
-        runCatching {
+        try {
             UsChatRepository.markRead(activeRoomId, currentUid, latest.id)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // A later refresh or new message will retry this read-cursor write.
         }
     }
 
@@ -256,7 +269,12 @@ internal fun UsChatScreen(
             try {
                 val olderPage = UsChatRepository.loadMessagesBefore(activeRoomId, cursor)
                 val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
-                messages = mergeChatTimeline(messages, olderPage.messages, queued)
+                val confirmedClientIds = olderPage.messages.mapNotNull { it.clientMessageId }.toSet()
+                queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
+                    UsChatOutboxStore.delete(context, it.clientMessageId)
+                }
+                val remainingQueued = queued.filterNot { it.clientMessageId in confirmedClientIds }
+                messages = mergeChatTimeline(messages, olderPage.messages, remainingQueued)
                 hasOlderMessages = olderPage.hasMore
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -600,6 +618,13 @@ private fun ChatMessageBubble(
                         TextButton(onClick = onRetry) {
                             Text("Not sent · Retry", fontSize = 10.sp, color = colors.error)
                         }
+                    }
+                    message.isAwaitingSync -> {
+                        Text(
+                            " · Sent · syncing…",
+                            color = colors.onSurfaceVariant,
+                            fontSize = 10.sp
+                        )
                     }
                     message.isPending -> {
                         Text(
