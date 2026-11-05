@@ -6,7 +6,7 @@ This document is the detailed execution checklist for Stage 4 of Us Chat. The ma
 
 Make the text conversation dependable before adding reactions, replies, editing, attachments, or notifications. Stage 4 focuses on message ordering, missed-event recovery, safe retries, offline sending, and read state.
 
-**Execution rule:** complete and verify one substage at a time. Stage 4.2's build and basic two-phone send/receive test passed, and the developer explicitly authorized moving forward. The extended 4.2 stress checklist is deferred to release hardening. The current active scope is **Stage 4.3.1**.
+**Execution rule:** complete and verify one substage at a time. Stage 4.2's build and basic two-phone send/receive test passed, and the developer explicitly authorized moving forward. The extended 4.2 stress checklist is deferred to release hardening. The developer reports Stage 4 finished. Stage 4.3.3 read-receipt implementation is now added; build, migration, and focused device/security verification remain.
 
 ## Current status and exact stopping point (2026-11-05)
 
@@ -14,11 +14,11 @@ Make the text conversation dependable before adding reactions, replies, editing,
 |---|---|---|---|
 | 4.1 | Supabase Realtime subscription and cleanup | Implemented in the branch. | Developer confirmed the Realtime publication flag is enabled and both phones exchange messages live. |
 | 4.2 | Synchronization recovery, deduplication, ordering, and pagination | Implemented in the feature branch. | Developer confirmed `clean assembleDebug` succeeded and basic two-phone live send/receive works. Extended pagination, reconnect, lifecycle, and RLS stress checks are deferred. |
-| 4.3 | Durable offline outbox, idempotent retries, and read receipts | 4.3.1 SQLite/WorkManager outbox and UI are pushed. Existing idempotent server-write path is reused. Read receipts are not implemented. | **ACTIVE — 4.3.1 awaits a fresh build and offline/device acceptance tests.** |
+| 4.3 | Durable offline outbox, idempotent retries, and read receipts | 4.3.1 SQLite/WorkManager outbox and UI are pushed. Existing idempotent server-write path is reused. Read-receipt code has now been added. | Developer reports Stage 4.3 complete; read-receipt verification remains pending. |
 
 ### Current checkpoint — resume here
 
-- **Current task:** Stage 4.3.1 — durable SQLite outbox and WorkManager sender.
+- **Current task:** Stage 4.3.3 — compile and validate read receipts.
 - **Repository:** `kodenothing/us-updater`
 - **Branch:** `feature/us-chat-2.5.0`
 - **Pull request:** [PR #7](https://github.com/kodenothing/us-updater/pull/7), keep draft/unmerged.
@@ -26,7 +26,7 @@ Make the text conversation dependable before adding reactions, replies, editing,
 - **Verified by developer:** the current 4.2 branch built successfully with `clean assembleDebug`; both phones exchanged live messages; `has_client_message_id` and `chat_messages_realtime_enabled` checks returned `true`.
 - **Deferred 4.2 checks:** pagination beyond 50 rows, reconnect/missed-event recovery, repeated screen lifecycle, and unrelated-user RLS regression. These are not marked passed and must return to the release-hardening checklist.
 - **Pushed for 4.3.1:** app-private SQLite outbox, network-constrained WorkManager delivery, a per-room serial work chain, five-attempt exponential retry, same client UUID on retries, sender UID guard, pending/sending/sent/failed display, manual retry, and server-confirmed local-row cleanup. The database also caches the room ID against the couple code and Firebase UID, so a previously opened conversation can reopen and queue messages offline after process death. The first room resolution still needs an online lookup.
-- **Not yet verified:** 4.3.1 has not had a fresh Gradle build or offline/process-death/two-phone test. Read receipts are not implemented.
+- **Read-receipt implementation pushed:** repository cursor read/write, current-user cursor advance to latest server message, partner Seen state, Realtime INSERT/UPDATE listeners, and migration `20261106010000_us_chat_read_receipts.sql`.\n- **Verification pending:** fresh build, migration application, and read-receipt two-phone/security checks.
 
 **Next action:** pull the latest feature branch and run `clean assembleDebug`. Review compiler output before testing offline behavior.
 
@@ -142,7 +142,7 @@ This migration adds nullable `client_message_id`, the unique index used by idemp
 
 ## Stage 4.3 — Offline sending and read receipts (active)
 
-The developer has authorized Stage 4.3 after the 4.2 build and basic live two-phone check. Implement and accept 4.3.1 first, then validate idempotent delivery, and only then add read receipts. No 4.3 substage is complete until its build and acceptance tests pass.
+The developer has authorized Stage 4.3 after the 4.2 build and basic live two-phone check. Implement and accept 4.3.1 first, then validate idempotent delivery, and only then add read receipts. The developer reports the offline outbox and idempotency substages complete; read receipts are newly implemented and still need verification.
 
 ### 4.3.1 Durable local outbox
 
@@ -170,7 +170,7 @@ The developer has authorized Stage 4.3 after the 4.2 build and basic live two-ph
 
 ### 4.3.3 Read receipts
 
-**Not started.** The table and RLS policies exist from Stage 1, but Android read-cursor read/write behavior and Realtime publication for `chat_room_reads` have not been added.
+**Implemented in branch; build/migration/device verification pending.** Android read-cursor behavior and Realtime publication have been added.
 
 - Use the existing `chat_room_reads` table: one cursor per room member, not one update per old message.
 - Add a new idempotent SQL migration to publish `public.chat_room_reads` to `supabase_realtime`, after checking the publication's current tables. Do not edit or rerun the already-applied message Realtime migration.
