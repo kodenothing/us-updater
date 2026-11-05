@@ -317,7 +317,7 @@ internal fun UsChatScreen(
             try {
                 val queued = withContext(Dispatchers.IO) {
                     UsChatOutboxStore.retry(context, clientMessageId)
-                        ?: error("This failed message is no longer available to retry.")
+                        ?: throw IllegalStateException("This failed message is no longer available to retry.")
                 }
                 outboxMessages = withContext(Dispatchers.IO) {
                     UsChatOutboxStore.listForRoom(context, queued.roomId, currentUid)
