@@ -1051,37 +1051,6 @@ private object HeartNavigationShape : Shape {
     }
 }
 
-private class CenterNotchedPillShape : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        density: androidx.compose.ui.unit.Density
-    ): Outline {
-        val w = size.width
-        val h = size.height
-        val radius = h * 0.5f
-        val notchHalf = with(density) { 49.dp.toPx() }
-        val notchDepth = with(density) { 19.dp.toPx() }
-        val cx = w * 0.5f
-        val path = Path().apply {
-            moveTo(radius, 0f)
-            lineTo(cx - notchHalf, 0f)
-            cubicTo(cx - notchHalf * 0.52f, 0f, cx - notchHalf * 0.52f, notchDepth, cx, notchDepth)
-            cubicTo(cx + notchHalf * 0.52f, notchDepth, cx + notchHalf * 0.52f, 0f, cx + notchHalf, 0f)
-            lineTo(w - radius, 0f)
-            quadraticTo(w, 0f, w, radius)
-            lineTo(w, h - radius)
-            quadraticTo(w, h, w - radius, h)
-            lineTo(radius, h)
-            quadraticTo(0f, h, 0f, h - radius)
-            lineTo(0f, radius)
-            quadraticTo(0f, 0f, radius, 0f)
-            close()
-        }
-        return Outline.Generic(path)
-    }
-}
-
 @Composable
 private fun UsBottomNavigationBar(
     tabs: List<Triple<String, androidx.compose.ui.graphics.vector.ImageVector, Int>>,
