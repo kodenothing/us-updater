@@ -8,6 +8,7 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import androidx.core.content.FileProvider
+import androidx.core.content.pm.PackageInfoCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import org.json.JSONObject
@@ -239,7 +240,7 @@ object GithubAppUpdater {
         }
 
     private fun longVersionCode(info: PackageInfo): Long =
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) info.longVersionCode else info.versionCode.toLong()
+        PackageInfoCompat.getLongVersionCode(info)
 
     private fun compareVersions(remoteTag: String, installedName: String): Int {
         fun parts(value: String): List<Int> = Regex("\\d+").findAll(value)
