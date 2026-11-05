@@ -81,7 +81,7 @@ Run on two paired phones after installing a build that passes Section B. Start w
 | # | Test | Steps | Expected result | Status |
 |---|---|---|---|---|
 | C1 | Online send regression | Send a normal message while connected. | Message is saved locally, delivered, and appears once on both phones. | [ ] |
-| C2 | Offline queue | Turn off Wi-Fi and mobile data on Phone A; send one message. | Message remains visible on A as Waiting for connection; draft is cleared only after local SQLite save succeeds. | [ ] |
+| C2 | Offline queue | Turn off Wi-Fi and mobile data on Phone A; send one message. | Message remains visible on A as Waiting for connection; no HTTP request error banner appears; draft is cleared only after local SQLite save succeeds. | [ ] |
 | C3 | Automatic delivery | Restore connectivity on A. Do not tap Send again. | WorkManager automatically sends the queued message; B receives it; one server row exists. | [ ] |
 | C4 | Offline app restart | Queue a message offline, force-stop UsApp, reopen while still offline. | Cached conversation opens; queued message remains visible and is not lost. | [ ] |
 | C5 | Process-death recovery | Queue a message, force-stop the app, restore network. | WorkManager resumes delivery after connectivity is available; one server row exists. | [ ] |
