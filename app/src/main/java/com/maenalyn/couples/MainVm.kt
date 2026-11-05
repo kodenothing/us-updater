@@ -20,6 +20,8 @@ import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseAuthException
 import com.google.firebase.firestore.FirebaseFirestoreException
 import com.google.firebase.messaging.FirebaseMessaging
+import com.maenalyn.couples.chat.SupabaseChatClientProvider
+import com.maenalyn.couples.chat.SupabaseChatDiagnostics
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.util.UUID
@@ -52,6 +54,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
     private val loadingOlderMemories = java.util.concurrent.atomic.AtomicBoolean(false)
     private var dailyWatchJob: Job? = null
     private var dailyWatchCode: String? = null
+    private val chatDiagnosticsStartedFor = java.util.concurrent.ConcurrentHashMap.newKeySet<String>()
     private val authStateListener = FirebaseAuth.AuthStateListener { firebaseAuth ->
         accountEmail.value = firebaseAuth.currentUser?.email
         authUid.value = firebaseAuth.currentUser?.uid
@@ -196,6 +199,15 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                                     when (state) {
                                         is CoupleState.Active -> {
                                             coupleLoadError.value = null
+                                            if (
+                                                BuildConfig.DEBUG &&
+                                                SupabaseChatClientProvider.isConfigured &&
+                                                chatDiagnosticsStartedFor.add(c)
+                                            ) {
+                                                launch {
+                                                    SupabaseChatDiagnostics.verifyPrivateRoomAccess(c)
+                                                }
+                                            }
                                             couple.value = state
                                             appTitle.value = state.coupleName
                                             myNickname.value = authUid.value?.let { state.memberNames[it] }.orEmpty()
