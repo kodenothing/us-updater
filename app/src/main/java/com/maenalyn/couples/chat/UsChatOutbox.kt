@@ -208,7 +208,7 @@ internal object UsChatOutboxStore {
 }
 
 internal object UsChatOutboxScheduler {
-    fun enqueue(context: Context, clientMessageId: String) {
+    fun enqueue(context: Context, roomId: String, clientMessageId: String) {
         val request = OneTimeWorkRequestBuilder<UsChatSendWorker>()
             .setInputData(workDataOf(UsChatSendWorker.KEY_CLIENT_MESSAGE_ID to clientMessageId))
             .setConstraints(
@@ -219,9 +219,11 @@ internal object UsChatOutboxScheduler {
             .setBackoffCriteria(BackoffPolicy.EXPONENTIAL, 20, TimeUnit.SECONDS)
             .build()
 
+        // A single serial chain per room preserves the order in which
+        // messages were placed in the local outbox, including while offline.
         WorkManager.getInstance(context.applicationContext).enqueueUniqueWork(
-            "us-chat-send-$clientMessageId",
-            ExistingWorkPolicy.REPLACE,
+            "us-chat-outbox-$roomId",
+            ExistingWorkPolicy.APPEND_OR_REPLACE,
             request
         )
     }
@@ -263,7 +265,9 @@ class UsChatSendWorker(
                     clientMessageId,
                     failure.message ?: "Message couldn't be sent. Tap to retry."
                 )
-                Result.failure()
+                // Mark this item failed but let later messages in the same
+                // room queue continue processing.
+                Result.success()
             }
         }
     }
