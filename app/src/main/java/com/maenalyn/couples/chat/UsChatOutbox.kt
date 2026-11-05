@@ -291,7 +291,7 @@ internal object UsChatOutboxStore {
         if (confirmedClientMessageIds.isEmpty()) return
 
         val placeholders = confirmedClientMessageIds.joinToString(",") { "?" }
-        val args = arrayOf<Any>(roomId) + confirmedClientMessageIds
+        val args = arrayOf(roomId) + confirmedClientMessageIds.toTypedArray()
         database(context).execSQL(
             "DELETE FROM $TABLE WHERE room_id = ? AND client_message_id IN ($placeholders)",
             args
