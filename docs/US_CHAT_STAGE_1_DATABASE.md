@@ -4,7 +4,7 @@ This stage creates the private, text-only chat database. It does not change Andr
 
 ## Important Firebase UID detail
 
-UsApp uses Firebase Auth UIDs such as opaque alphanumeric strings. Supabase's \`auth.uid()\` helper casts the JWT \`sub\` claim to a UUID, so it is not suitable for these Firebase identities. The migration reads \`auth.jwt()->>'sub'\` as **text**, and checks the Firebase issuer, audience, and \`role: authenticated\` claim before granting access.
+UsApp uses Firebase Auth UIDs such as opaque alphanumeric strings. Supabase's `auth.uid()` helper casts the JWT `sub` claim to a UUID, so it is not suitable for these Firebase identities. The migration reads `auth.jwt()->>'sub'` as **text**, and checks the Firebase issuer, audience, and `role: authenticated` claim before granting access.
 
 Official reference: https://supabase.com/docs/guides/auth/third-party/custom-oidc#using-rls-policies
 
@@ -12,10 +12,10 @@ Official reference: https://supabase.com/docs/guides/auth/third-party/custom-oid
 
 | Table | Purpose |
 |---|---|
-| \`chat_rooms\` | One room linked to an existing Firebase couple code |
-| \`chat_room_members\` | The two Firebase UIDs authorized for that room |
-| \`chat_messages\` | Text messages, server timestamps, reply reference, and reserved edit/delete metadata |
-| \`chat_room_reads\` | One read cursor per room member |
+| `chat_rooms` | One room linked to an existing Firebase couple code |
+| `chat_room_members` | The two Firebase UIDs authorized for that room |
+| `chat_messages` | Text messages, server timestamps, reply reference, and reserved edit/delete metadata |
+| `chat_room_reads` | One read cursor per room member |
 
 Security characteristics:
 
@@ -35,7 +35,7 @@ In the Supabase Dashboard, open **SQL Editor → New query**.
 
 Copy the complete migration from:
 
-\`supabase/migrations/20261105090000_us_chat_schema.sql\`
+`supabase/migrations/20261105090000_us_chat_schema.sql`
 
 Paste it into the SQL Editor and run it once.
 
@@ -45,11 +45,11 @@ Do not run it a second time after it succeeds. The migration is intentionally a 
 
 Do this in the Supabase SQL Editor, which runs with database-owner privileges. Do not run this from Android.
 
-Use the existing UsApp Firestore \`couples/{coupleCode}\` document. Its \`members\` array must contain exactly the two Firebase UIDs that were verified by the local Admin SDK dry run.
+Use the existing UsApp Firestore `couples/{coupleCode}` document. Its `members` array must contain exactly the two Firebase UIDs that were verified by the local Admin SDK dry run.
 
 Replace the three placeholders below with the current couple code and the two UIDs. Keep this query private; do not commit the real values to GitHub or send them in chat.
 
-\`\`\`sql
+```sql
 with room as (
     insert into public.chat_rooms (firebase_couple_code)
     values ('REPLACE_WITH_EXISTING_COUPLE_CODE')
@@ -67,7 +67,7 @@ select room.id, members.firebase_uid
 from room
 cross join members
 on conflict (room_id, firebase_uid) do nothing;
-\`\`\`
+```
 
 If this reports a uniqueness or member-limit error, stop. Do not work around it by deleting rows. Inspect the room and membership records first.
 
@@ -75,7 +75,7 @@ If this reports a uniqueness or member-limit error, stop. Do not work around it 
 
 Run this in the SQL Editor, replacing the couple code with the same existing value:
 
-\`\`\`sql
+```sql
 select
     r.id as room_id,
     r.firebase_couple_code,
@@ -85,9 +85,9 @@ from public.chat_rooms as r
 left join public.chat_room_members as m on m.room_id = r.id
 where r.firebase_couple_code = 'REPLACE_WITH_EXISTING_COUPLE_CODE'
 group by r.id, r.firebase_couple_code;
-\`\`\`
+```
 
-Expected: exactly one row with \`member_count = 2\`, and the two UIDs must match the existing Firestore \`members\` array.
+Expected: exactly one row with `member_count = 2`, and the two UIDs must match the existing Firestore `members` array.
 
 ## 4. Stop for the RLS verification
 
