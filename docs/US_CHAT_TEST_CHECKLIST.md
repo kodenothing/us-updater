@@ -7,9 +7,9 @@ Use this checklist to record real results. Check an item only after performing t
 - [x] Developer confirmed the new partner Firebase UID was provisioned with role="authenticated" and the Supabase room roster was updated.
 - [ ] Verify the partner UID migration on both phones using Section A.
 - [ ] Pull the latest feature/us-chat-2.5.0 branch and run the fresh build in Section B.
-- [ ] Complete Stage 4.3.1 offline outbox tests in Section C.
+- [x] Developer reports Stage 4 complete (4.3.1 and 4.3.2 accepted by developer).
 - [ ] Complete deferred Stage 4.2 reliability/security tests in Section D.
-- [ ] Complete read receipts only after their implementation is pushed (Section E is a future checklist).
+- [ ] Verify the newly pushed Stage 4.3.3 read-receipt implementation in Section E.
 
 Repository: kodenothing/us-updater
 Branch: feature/us-chat-2.5.0
@@ -149,8 +149,8 @@ These were not completed as part of the basic live-message check. Record them be
 
 Do not test or mark this section complete until the Android implementation and any required Realtime publication migration have been reviewed and pushed.
 
-- [ ] Read cursor is created/advanced only for the current Firebase UID.
-- [ ] Cursor advances only to a server-confirmed message.
+- [ ] Pull latest branch and run `clean assembleDebug`.\n- [ ] Apply the read receipt migration in Supabase SQL Editor.\n- [ ] Read cursor is created/advanced only for the current Firebase UID.
+- [ ] Cursor advances only to a server-confirmed message and cannot regress/reset.
 - [ ] Partner cursor is visible to the other room member.
 - [ ] Seen appears only for the latest applicable message sent by the current user.
 - [ ] Read state updates live through Realtime and recovers after reconnect.
