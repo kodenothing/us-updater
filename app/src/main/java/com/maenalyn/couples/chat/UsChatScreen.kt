@@ -203,6 +203,14 @@ internal fun UsChatScreen(
             table = "chat_messages"
             filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
         }
+        val readInsertFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "chat_room_reads"
+            filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
+        }
+        val readUpdateFlow = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") {
+            table = "chat_room_reads"
+            filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
+        }
 
         var realtimeConnected = false
 
@@ -218,6 +226,7 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
                 UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
             }
+            readStates = UsChatRepository.loadReadStates(activeRoomId)
         }
 
         val messageCollector = launch {
