@@ -26,7 +26,7 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 | 3 — First text-chat UI and send/receive path | Implemented. | A debug build succeeded during development. Keep full two-phone live delivery and security checks as explicit acceptance items. |
 | 4.1 — Realtime foundation | Realtime client/channel integration implemented. | Developer confirmed the Realtime publication check is true and both phones exchange messages live. |
 | 4.2 — Reliable synchronization | Synchronization recovery, timeline merge, ordering, and keyset pagination implemented. | Developer confirmed `clean assembleDebug` succeeded and basic two-phone live send/receive works. Extended pagination, reconnect, lifecycle, and RLS stress tests are deferred for later hardening. |
-| 4.3 — Offline sending and read receipts | Durable SQLite outbox, WorkManager sender, local delivery states, manual retry, and stable client-ID send path pushed to the branch. Read receipts are not implemented yet. | **ACTIVE — 4.3.1 implementation pushed; fresh build and offline-device tests are pending.** |
+| 4.3.1 — Offline outbox | SQLite/WorkManager queue, retry, stable client IDs, account guard, and delivery UI implemented. | Developer reports Stage 4 complete. |\n| 4.3.2 — Idempotency | Server unique key and stable UUID retry path implemented. | Developer reports Stage 4 complete. |\n| 4.3.3 — Read receipts | Cursor repository/UI, partner Seen state, Realtime listeners, and migration added to feature branch. | **Fresh build, Supabase migration, and two-phone/security verification pending.** |
 | 5 — Conversation features | Planned. | Not started. |
 | 6 — Push notifications | Planned. | Not started; trusted sender, secrets, quotas, and free-plan feasibility need review. |
 | 7 — Media and live presence | Planned. | Not started. |
@@ -34,7 +34,7 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 
 ### Exact stopping point — resume here
 
-**Current task: Stage 4.3.1 — validate the durable offline outbox.** The developer accepted moving forward after the 4.2 build and basic two-phone send/receive test. Extended 4.2 pagination, reconnect, lifecycle, and unrelated-user RLS stress checks remain deferred and must be revisited before release.
+**Current task: Stage 4.3.3 — compile and verify read receipts.** The developer reports Stage 4 finished. The read-receipt implementation is now pushed; run a fresh build, apply its migration, and perform its focused tests. Extended 4.2 pagination, reconnect, lifecycle, and unrelated-user RLS stress checks remain release-hardening tasks.
 
 - Repository: `kodenothing/us-updater`
 - Branch: `feature/us-chat-2.5.0`
@@ -45,7 +45,7 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 - Stage 4.3.1 now includes app-private SQLite persistence, network-constrained WorkManager delivery, per-room queued work, bounded exponential retries, stable client UUID reuse, account-UID checks, pending/sent/failed timeline states, and manual retry. A worker success is recorded locally, but its row is retained until a PostgREST page confirms the matching `client_message_id`. A per-account couple-code/room-ID cache also lets a previously opened conversation reopen offline and queue messages after process restart; the first room lookup still needs connectivity.
 - **Not yet verified:** the new outbox code has not been built or tested offline/on two phones. Read receipts are not implemented.
 
-**Next action:** pull the latest branch and run `clean assembleDebug`. Stop and review any compiler output before device testing. No new Supabase migration is required for this outbox substage.
+**Next action:** pull the latest branch and run `clean assembleDebug`. Stop and review compiler output before device testing. Apply `supabase/migrations/20261106010000_us_chat_read_receipts.sql` once in Supabase SQL Editor before read-receipt tests.
 
 ```powershell
 git fetch origin
