@@ -35,7 +35,7 @@ git pull --ff-only origin feature/us-chat-2.5.0
 .\gradlew.bat clean assembleDebug
 ```
 
-Do not install over an existing app until the signing certificate matches. For the current installation, the local release keystore fingerprint was verified to match the installed app, so use the local signing configuration already present in `keystore.properties` to sign the Debug APK if needed.
+Do not install over an existing app until the signing certificate matches. The installed app's certificate was confirmed to match the local release keystore, while the default Debug certificate does not match. Before installing, make sure the local Debug build is signed with that existing key; do not uninstall the existing app to work around a signature mismatch.
 
 ## Two-device test checklist
 
