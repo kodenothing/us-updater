@@ -949,6 +949,7 @@ fun HomeScreen(vm: MainVm) {
                 )
                 else -> SettingsTab(vm, couple, { confirm = true }, screenPad)
             }
+            }
             if (!imeVisible) {
                 UsBottomNavigationBar(
                     tabs = tabs,
