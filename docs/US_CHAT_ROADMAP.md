@@ -18,19 +18,51 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 
 ## Current development status — 2026-11-05
 
-| Stage | Status |
-|---|---|
-| 0 — Project and identity readiness | Completed according to the developer's setup confirmation. |
-| 1 — Database schema and RLS | Base schema and room roster setup completed. Security regression tests remain part of release hardening. |
-| 2 — Android Supabase foundation | Integrated; earlier Android build and protected-read setup completed. |
-| 3 — First text-chat UI and send/receive path | Implemented; a debug build was confirmed successful during development. Keep the full two-phone acceptance checklist as the release record. |
-| 4.1 — Realtime foundation | SDK integration correction is in; developer confirmed the subsequent build succeeded. Database migration and two-device live delivery still require explicit acceptance. |
-| 4.2 — Reliable synchronization | Code has been pushed to `feature/us-chat-2.5.0`. A fresh build and two-phone test are still pending. **Current active stage.** |
-| 4.3 — Offline sending and read receipts | Initial code and migration groundwork exist in the branch, but this is paused and not accepted. Start/finish it only after 4.2 is approved. |
-| 5 — Conversation features | Planned. |
-| 6 — Push notifications | Planned; backend, secrets, quota, and free-plan feasibility must be reviewed first. |
-| 7 — Media and live presence | Planned; do only after text, sync, and notifications are reliable. |
-| 8 — Security, performance, and release hardening | Planned; required before production release. |
+| Stage | Implementation status | Verification status |
+|---|---|---|
+| 0 — Project and identity readiness | <span>Completed</span> | Developer confirmed the Supabase Free plan, Singapore region, Firebase integration, and required claims. |
+| 1 — Database schema and RLS | Base schema and couple-room roster are set up. | Database setup is complete; unrelated-user, wrong-sender, and cross-room regression tests remain a release-hardening requirement. |
+| 2 — Android Supabase foundation | Completed. | Earlier debug/release build and protected-read setup were completed during development. |
+| 3 — First text-chat UI and send/receive path | Implemented. | A debug build succeeded during development. Keep full two-phone live delivery and security checks as explicit acceptance items. |
+| 4.1 — Realtime foundation | Realtime client/channel integration implemented. | Developer confirmed a successful build after the SDK API correction. Migration application and actual two-phone live delivery are not yet recorded as accepted. |
+| 4.2 — Reliable synchronization | Implementation pushed to `feature/us-chat-2.5.0`. | **Active stage.** No fresh Gradle build or two-phone acceptance has been reported for the current 4.2 implementation. |
+| 4.3 — Offline sending and read receipts | Preliminary code and migration groundwork already exist in the branch. | **Paused. Not accepted.** Do not extend this stage until Stage 4.2 is accepted. |
+| 5 — Conversation features | Planned. | Not started. |
+| 6 — Push notifications | Planned. | Not started; trusted sender, secrets, quotas, and free-plan feasibility need review. |
+| 7 — Media and live presence | Planned. | Not started. |
+| 8 — Security, performance, and release hardening | Planned. | Not started; mandatory before production release. |
+
+### Exact stopping point — resume here
+
+**The developer stopped at Stage 4.2. Continue Stage 4.2 only. Do not start or extend Stage 4.3 or Stage 5.**
+
+- Repository: `kodenothing/us-updater`
+- Branch: `feature/us-chat-2.5.0`
+- Pull request: [PR #7](https://github.com/kodenothing/us-updater/pull/7) — keep it draft and unmerged.
+- Last code implementation checkpoint: `53f8900476283e0f0a0729af2602a2a532bcd613`. Later commits on this branch update documentation; pull the branch rather than checking out this older hash.
+- Work already pushed for 4.2 includes message timeline merging, deduplication, deterministic ordering, keyset pagination, Realtime status monitoring, reconnect refresh, and polling recovery.
+- **Not yet verified:** a fresh Gradle build after the 4.2 code changes, pagination behavior, reconnect behavior, and two-phone synchronization.
+- Preliminary 4.3 outbox/read-receipt code and its migration are already present from the earlier combined implementation. They are deliberately paused and must not be treated as complete or as the current task.
+
+**Next action when resuming:** pull the feature branch and run the build. Do not change code or apply another database migration until the build result is reviewed.
+
+```powershell
+git fetch origin
+git pull --ff-only origin feature/us-chat-2.5.0
+.\gradlew.bat clean assembleDebug
+```
+
+After a successful build, test only the Stage 4.2 checklist in [US_CHAT_STAGE_4_ROADMAP.md](./US_CHAT_STAGE_4_ROADMAP.md): message deduplication, consistent ordering, older-message pagination, reconnect recovery, and screen/listener lifecycle. Report the actual Gradle output before any further implementation.
+
+### Completed stage documents
+
+These are the existing stage guides for work already completed or integrated. “Completed” refers to the setup/implementation milestone; any remaining device or security acceptance tests are called out in the relevant guide.
+
+- [Stage 0 — Account and project setup](./US_CHAT_STAGE_0_SETUP.md)
+- [Stage 1 — Database schema and RLS](./US_CHAT_STAGE_1_DATABASE.md)
+- [Stage 2 — Android Supabase foundation](./US_CHAT_STAGE_2_ANDROID.md)
+- [Stage 3 — First text-chat screen](./US_CHAT_STAGE_3_ANDROID.md)
+- [Stage 4 — Reliability execution and acceptance plan](./US_CHAT_STAGE_4_ROADMAP.md) — active work; see the exact stopping point above.
 
 **Status language:** “implemented” means code exists; “build passed” means the developer actually ran the build successfully; “accepted” means the agreed device/security tests also passed. Do not treat these as interchangeable.
 
