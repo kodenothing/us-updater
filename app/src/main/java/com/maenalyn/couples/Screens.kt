@@ -74,6 +74,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.graphicsLayer
@@ -838,18 +839,19 @@ fun HomeScreen(vm: MainVm) {
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         },
-        bottomBar = {
-            if (!imeVisible) {
-                UsBottomNavigationBar(
-                    tabs = tabs,
-                    selectedTab = tab,
-                    onTabSelected = { tab = it }
-                )
-            }
-        }
     ) { pad ->
-        AnimatedContent(
-            targetState = tab,
+        val layoutDirection = LocalLayoutDirection.current
+        val screenPad = PaddingValues(
+            start = pad.calculateStartPadding(layoutDirection),
+            top = pad.calculateTopPadding(),
+            end = pad.calculateEndPadding(layoutDirection),
+            bottom = pad.calculateBottomPadding() + if (imeVisible) 0.dp else 112.dp
+        )
+
+        Box(Modifier.fillMaxSize()) {
+            AnimatedContent(
+                modifier = Modifier.fillMaxSize(),
+                targetState = tab,
             transitionSpec = {
                 if (initialState == 7 || targetState == 7) {
                     EnterTransition.None togetherWith ExitTransition.None
@@ -878,12 +880,12 @@ fun HomeScreen(vm: MainVm) {
                     onOpenLists = { tab = 4 },
                     dailyUs = dailyUs,
                     onOpenDailyUs = { dailyDateKey = todayKey; showDailyUs = true },
-                    pad = pad
+                    pad = screenPad
                 )
-                1 -> CalendarTab(vm, events, pad)
-                2 -> NotesTab(vm, notes, pad)
-                3 -> MemoriesTab(vm, memories, pad)
-                4 -> ListsHubTab(all, vm, pad)
+                1 -> CalendarTab(vm, events, screenPad)
+                2 -> NotesTab(vm, notes, screenPad)
+                3 -> MemoriesTab(vm, memories, screenPad)
+                4 -> ListsHubTab(all, vm, screenPad)
                 7 -> OurMapTab(
                     couple = couple,
                     currentUid = currentUid,
@@ -937,15 +939,23 @@ fun HomeScreen(vm: MainVm) {
                 8 -> OurInstantTab(
                     code = vm.code.value.orEmpty(),
                     uid = currentUid.orEmpty(),
-                    pad = pad
+                    pad = screenPad
                 )
                 9 -> UsChatScreen(
                     coupleCode = vm.code.value.orEmpty(),
                     currentUid = currentUid.orEmpty(),
                     partnerName = partnerName,
-                    modifier = Modifier.padding(pad)
+                    modifier = Modifier.padding(screenPad)
                 )
-                else -> SettingsTab(vm, couple, { confirm = true }, pad)
+                else -> SettingsTab(vm, couple, { confirm = true }, screenPad)
+            }
+            if (!imeVisible) {
+                UsBottomNavigationBar(
+                    tabs = tabs,
+                    selectedTab = tab,
+                    onTabSelected = { tab = it },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
         }
     }
@@ -1076,14 +1086,15 @@ private class CenterNotchedPillShape : Shape {
 private fun UsBottomNavigationBar(
     tabs: List<Triple<String, androidx.compose.ui.graphics.vector.ImageVector, Int>>,
     selectedTab: Int,
-    onTabSelected: (Int) -> Unit
+    onTabSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     val leftTabs = tabs.take(2)
     val rightTabs = tabs.drop(2)
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
             .padding(bottom = 12.dp)
             .height(90.dp)
@@ -1093,9 +1104,7 @@ private fun UsBottomNavigationBar(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
-                .height(62.dp)
-                .shadow(4.dp, CenterNotchedPillShape())
-                .clip(CenterNotchedPillShape()),
+                .height(62.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(Modifier.weight(1f).fillMaxHeight()) {
