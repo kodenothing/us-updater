@@ -43,7 +43,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CheckCircle
@@ -421,7 +421,7 @@ fun PairingFlowScreen(vm: MainVm, code: String) {
                 shadowElevation = 3.dp
             ) {
                 IconButton(onClick = requestCancel, enabled = !busy) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back to pairing")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to pairing")
                 }
             }
         }
