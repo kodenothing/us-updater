@@ -20,7 +20,7 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 
 | Stage | Implementation status | Verification status |
 |---|---|---|
-| 0 — Project and identity readiness | <span>Completed</span> | Developer confirmed the Supabase Free plan, Singapore region, Firebase integration, and required claims. |
+| 0 — Project and identity readiness | Completed | Developer confirmed the Supabase Free plan, Singapore region, Firebase integration, and required claims. |
 | 1 — Database schema and RLS | Base schema and couple-room roster are set up. | Database setup is complete; unrelated-user, wrong-sender, and cross-room regression tests remain a release-hardening requirement. |
 | 2 — Android Supabase foundation | Completed. | Earlier debug/release build and protected-read setup were completed during development. |
 | 3 — First text-chat UI and send/receive path | Implemented. | A debug build succeeded during development. Keep full two-phone live delivery and security checks as explicit acceptance items. |
