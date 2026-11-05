@@ -46,6 +46,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.jan.supabase.realtime.Realtime
@@ -55,20 +56,17 @@ import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
-
-private data class FailedChatSend(
-    val body: String,
-    val clientMessageId: String
-)
 
 @Composable
 internal fun UsChatScreen(
@@ -80,6 +78,7 @@ internal fun UsChatScreen(
     val colors = MaterialTheme.colorScheme
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
+    val context = LocalContext.current.applicationContext
 
     var roomId by remember(coupleCode, currentUid) { mutableStateOf<String?>(null) }
     var messages by remember(coupleCode, currentUid) { mutableStateOf<List<UsChatMessage>>(emptyList()) }
@@ -92,7 +91,12 @@ internal fun UsChatScreen(
     var refreshTrigger by remember { mutableIntStateOf(0) }
     var realtimeLabel by remember(coupleCode, currentUid) { mutableStateOf("Connecting…") }
     var hasInitialPage by remember(coupleCode, currentUid) { mutableStateOf(false) }
-    var failedSend by remember { mutableStateOf<FailedChatSend?>(null) }
+    var outboxMessages by remember(coupleCode, currentUid) {
+        mutableStateOf<List<UsChatOutboxEntry>>(emptyList())
+    }
+    val timelineMessages = remember(messages, outboxMessages) {
+        buildChatTimeline(messages, outboxMessages)
+    }
 
     LaunchedEffect(coupleCode, currentUid, refreshTrigger) {
         loading = messages.isEmpty()
@@ -107,6 +111,12 @@ internal fun UsChatScreen(
                 incoming = page.messages
             )
             if (!hasInitialPage) hasOlderMessages = page.hasMore
+            val confirmedIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
+            outboxMessages = withContext(Dispatchers.IO) {
+                UsChatOutboxStore.deleteConfirmed(context, room.id, confirmedIds)
+                UsChatOutboxStore.listForRoom(context, room.id, currentUid)
+            }
+            UsChatOutboxScheduler.enqueuePending(context, room.id, currentUid)
             hasInitialPage = true
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -114,6 +124,16 @@ internal fun UsChatScreen(
             error = failure.message ?: "Couldn't connect to Us Chat."
         } finally {
             loading = false
+        }
+    }
+
+    LaunchedEffect(roomId, currentUid) {
+        val activeRoomId = roomId ?: return@LaunchedEffect
+        while (isActive) {
+            outboxMessages = withContext(Dispatchers.IO) {
+                UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+            }
+            delay(2_000L)
         }
     }
 
@@ -134,6 +154,11 @@ internal fun UsChatScreen(
         suspend fun syncLatest() {
             val page = UsChatRepository.loadLatestMessages(activeRoomId)
             messages = mergeChatTimeline(messages, page.messages)
+            val confirmedIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
+            outboxMessages = withContext(Dispatchers.IO) {
+                UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
+                UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+            }
         }
 
         val messageCollector = launch {
@@ -204,9 +229,9 @@ internal fun UsChatScreen(
         }
     }
 
-    LaunchedEffect(messages.lastOrNull()?.id) {
-        if (messages.isNotEmpty()) {
-            listState.animateScrollToItem(messages.lastIndex)
+    LaunchedEffect(timelineMessages.lastOrNull()?.id) {
+        if (timelineMessages.isNotEmpty()) {
+            listState.animateScrollToItem(timelineMessages.lastIndex)
         }
     }
 
@@ -224,6 +249,11 @@ internal fun UsChatScreen(
                 val updated = mergeChatTimeline(messages, olderPage.messages)
                 messages = updated
                 hasOlderMessages = olderPage.hasMore
+                val confirmedIds = olderPage.messages.mapNotNull { it.clientMessageId }.toSet()
+                outboxMessages = withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
+                    UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+                }
                 val anchorIndex = previousTopId?.let { id ->
                     updated.indexOfFirst { it.id == id }
                 } ?: -1
@@ -247,34 +277,51 @@ internal fun UsChatScreen(
             return
         }
 
-        // Keep one UUID for retries of the same draft so a timed-out request
-        // that actually committed cannot create a second database row.
-        val clientMessageId = failedSend
-            ?.takeIf { it.body == body }
-            ?.clientMessageId
-            ?: UUID.randomUUID().toString()
-
+        val clientMessageId = UUID.randomUUID().toString()
         scope.launch {
             sending = true
             error = null
             try {
-                val saved = UsChatRepository.sendMessage(
-                    roomId = activeRoomId,
-                    senderUid = currentUid,
-                    body = body,
-                    clientMessageId = clientMessageId
-                )
-                messages = mergeChatTimeline(messages, listOf(saved))
+                val queued = withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.insert(
+                        context = context,
+                        roomId = activeRoomId,
+                        senderUid = currentUid,
+                        body = body,
+                        clientMessageId = clientMessageId
+                    )
+                }
                 draft = ""
-                failedSend = null
-                error = null
+                outboxMessages = withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+                }
+                UsChatOutboxScheduler.enqueue(context, queued)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                failedSend = FailedChatSend(body, clientMessageId)
-                error = failure.message ?: "Message couldn't be sent. Your draft is still here; retry it."
+                error = failure.message
+                    ?: "The message could not be queued on this device. Your draft is still here."
             } finally {
                 sending = false
+            }
+        }
+    }
+
+    fun retryOutboxMessage(clientMessageId: String) {
+        scope.launch {
+            try {
+                val queued = withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.retry(context, clientMessageId)
+                        ?: error("This failed message is no longer available to retry.")
+                }
+                outboxMessages = withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.listForRoom(context, queued.roomId, currentUid)
+                }
+                UsChatOutboxScheduler.enqueue(context, queued)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = failure.message ?: "Couldn't retry this message."
             }
         }
     }
@@ -335,17 +382,15 @@ internal fun UsChatScreen(
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = {
-                        if (failedSend != null) sendDraft() else refreshTrigger++
-                    }) {
-                        Text(if (failedSend != null) "Retry send" else "Retry", color = colors.onErrorContainer)
+                    TextButton(onClick = { refreshTrigger++ }) {
+                        Text("Retry", color = colors.onErrorContainer)
                     }
                 }
             }
         }
 
         when {
-            loading && messages.isEmpty() -> {
+            loading && timelineMessages.isEmpty() -> {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 2.dp)
@@ -354,7 +399,7 @@ internal fun UsChatScreen(
                     }
                 }
             }
-            messages.isEmpty() -> {
+            timelineMessages.isEmpty() -> {
                 Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Column(
                         Modifier.padding(horizontal = 34.dp),
@@ -410,8 +455,12 @@ internal fun UsChatScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    itemsIndexed(messages, key = { _, message -> message.id }) { _, message ->
-                        ChatMessageBubble(message = message, mine = message.senderUid == currentUid)
+                    itemsIndexed(timelineMessages, key = { _, message -> message.id }) { _, message ->
+                        ChatMessageBubble(
+                            message = message,
+                            mine = message.senderUid == currentUid,
+                            onRetry = ::retryOutboxMessage
+                        )
                     }
                 }
             }
@@ -430,7 +479,6 @@ internal fun UsChatScreen(
                     value = draft,
                     onValueChange = {
                         draft = it.take(4000)
-                        if (failedSend?.body != it.trim()) failedSend = null
                     },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("Write something sweet…", fontSize = 14.sp) },
@@ -478,7 +526,60 @@ private fun mergeChatTimeline(
 }
 
 @Composable
-private fun ChatMessageBubble(message: UsChatMessage, mine: Boolean) {
+private data class ChatTimelineItem(
+    val id: String,
+    val senderUid: String,
+    val body: String,
+    val createdAt: String,
+    val clientMessageId: String?,
+    val deliveryState: String?
+)
+
+private fun buildChatTimeline(
+    serverMessages: List<UsChatMessage>,
+    outboxMessages: List<UsChatOutboxEntry>
+): List<ChatTimelineItem> {
+    val confirmedClientIds = serverMessages.mapNotNull { it.clientMessageId }.toSet()
+    val result = ArrayList<ChatTimelineItem>(serverMessages.size + outboxMessages.size)
+
+    serverMessages.forEach { message ->
+        result += ChatTimelineItem(
+            id = message.id,
+            senderUid = message.senderUid,
+            body = message.body,
+            createdAt = message.createdAt,
+            clientMessageId = message.clientMessageId,
+            deliveryState = null
+        )
+    }
+
+    outboxMessages
+        .filterNot { it.clientMessageId in confirmedClientIds }
+        .forEach { entry ->
+            result += ChatTimelineItem(
+                id = entry.serverMessageId ?: "local:${entry.clientMessageId}",
+                senderUid = entry.senderUid,
+                body = entry.body,
+                createdAt = entry.serverCreatedAt
+                    ?: Instant.ofEpochMilli(entry.localCreatedAtMs).toString(),
+                clientMessageId = entry.clientMessageId,
+                deliveryState = entry.status
+            )
+        }
+
+    return result.sortedWith { left, right ->
+        val timeComparison = runCatching {
+            Instant.parse(left.createdAt).compareTo(Instant.parse(right.createdAt))
+        }.getOrElse { left.createdAt.compareTo(right.createdAt) }
+        if (timeComparison != 0) timeComparison else left.id.compareTo(right.id)
+    }
+}
+
+private fun ChatMessageBubble(
+    message: ChatTimelineItem,
+    mine: Boolean,
+    onRetry: (String) -> Unit
+) {
     val colors = MaterialTheme.colorScheme
     val bubbleColor = if (mine) colors.primary else colors.surfaceVariant
     val textColor = if (mine) colors.onPrimary else colors.onSurfaceVariant
@@ -515,14 +616,40 @@ private fun ChatMessageBubble(message: UsChatMessage, mine: Boolean) {
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                 )
             }
-            Text(
-                time,
-                color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-                fontSize = 10.sp,
-                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
-                maxLines = 1,
-                overflow = TextOverflow.Clip
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
+            ) {
+                Text(
+                    time,
+                    color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                    fontSize = 10.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Clip
+                )
+                message.deliveryState?.let { state ->
+                    Text(
+                        " · " + when (state) {
+                            UsChatOutboxStatus.PENDING -> "Waiting for connection"
+                            UsChatOutboxStatus.SENDING -> "Sending…"
+                            UsChatOutboxStatus.SENT -> "Sent"
+                            UsChatOutboxStatus.FAILED -> "Not sent"
+                            else -> state
+                        },
+                        color = colors.onSurfaceVariant.copy(alpha = 0.8f),
+                        fontSize = 10.sp,
+                        modifier = Modifier.padding(start = 3.dp)
+                    )
+                    if (state == UsChatOutboxStatus.FAILED && message.clientMessageId != null) {
+                        TextButton(
+                            onClick = { onRetry(message.clientMessageId) },
+                            modifier = Modifier.height(26.dp)
+                        ) {
+                            Text("Retry", fontSize = 10.sp)
+                        }
+                    }
+                }
+            }
         }
     }
 }
