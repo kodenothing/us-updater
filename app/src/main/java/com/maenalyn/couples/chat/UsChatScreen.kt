@@ -136,7 +136,8 @@ internal fun UsChatScreen(
                 // The room was resolved during an earlier online session.
                 // Keep the local conversation usable while WorkManager waits
                 // for connectivity to return.
-                error = "Offline. Messages are saved on this device and will send when you reconnect."
+                realtimeLabel = "Offline · messages will send when you reconnect"
+                error = null
                 return@LaunchedEffect
             }
 
