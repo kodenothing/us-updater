@@ -343,6 +343,26 @@ internal fun UsChatScreen(
         }
     }
 
+    // Advance only to a server-confirmed message. The database migration
+    // additionally prevents concurrent clients from regressing the cursor.
+    LaunchedEffect(roomId, currentUid, messages.lastOrNull()?.id) {
+        val activeRoomId = roomId ?: return@LaunchedEffect
+        val latestServerMessage = messages.lastOrNull() ?: return@LaunchedEffect
+        try {
+            UsChatRepository.advanceReadCursor(
+                roomId = activeRoomId,
+                readerUid = currentUid,
+                messageId = latestServerMessage.id
+            )
+            readStates = UsChatRepository.loadReadStates(activeRoomId)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            // Receipt failure must not block sending. Realtime and refresh
+            // will recover the read state later.
+        }
+    }
+
     fun loadOlderMessages() {
         val activeRoomId = roomId ?: return
         val cursor = messages.firstOrNull() ?: return
