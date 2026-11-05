@@ -139,6 +139,19 @@ internal object UsChatOutboxStore {
             }
         }
 
+    suspend fun markSent(context: Context, clientMessageId: String) = withContext(Dispatchers.IO) {
+        val values = ContentValues().apply {
+            put("status", "sent")
+            putNull("last_error")
+        }
+        database(context).update(
+            TABLE,
+            values,
+            "client_message_id = ?",
+            arrayOf(clientMessageId)
+        )
+    }
+
     suspend fun markPending(context: Context, clientMessageId: String) = withContext(Dispatchers.IO) {
         val values = ContentValues().apply {
             put("status", UsChatOutboxMessage.STATUS_PENDING)
@@ -228,7 +241,7 @@ class UsChatSendWorker(
                 body = queued.body,
                 clientMessageId = queued.clientMessageId
             )
-            UsChatOutboxStore.delete(applicationContext, clientMessageId)
+            UsChatOutboxStore.markSent(applicationContext, clientMessageId)
             Result.success()
         } catch (cancelled: CancellationException) {
             throw cancelled
