@@ -51,6 +51,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
+import io.github.jan.supabase.realtime.PostgresAction
+import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
@@ -82,23 +84,69 @@ internal fun UsChatScreen(
         try {
             val room = UsChatRepository.findRoom(coupleCode)
             roomId = room.id
-            while (isActive) {
+            messages = UsChatRepository.loadMessages(room.id)
+            error = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            error = failure.message ?: "Couldn't connect to Us Chat."
+        } finally {
+            loading = false
+        }
+    }
+
+    // Realtime is the primary update path. Polling remains as a safety net:
+    // every 30 seconds while subscribed, or every 5 seconds if subscription
+    // setup fails. The channel and collector are scoped to this visible screen.
+    LaunchedEffect(roomId) {
+        val activeRoomId = roomId ?: return@LaunchedEffect
+        val supabase = SupabaseChatClientProvider.get()
+        val channel = supabase.channel("us-chat-$activeRoomId")
+        val changeFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "chat_messages"
+            filter = "room_id=eq.$activeRoomId"
+        }
+
+        var realtimeConnected = false
+        val collector = launch {
+            changeFlow.collect {
                 try {
-                    messages = UsChatRepository.loadMessages(room.id)
+                    messages = UsChatRepository.loadMessages(activeRoomId)
                     error = null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    error = failure.message ?: "A new message arrived, but the chat couldn't refresh."
+                }
+            }
+        }
+
+        try {
+            try {
+                channel.subscribe(blockUntilSubscribed = true)
+                realtimeConnected = true
+            } catch (subscribeFailure: Exception) {
+                // Keep chat usable if Realtime is unavailable (e.g. replication
+                // hasn't been enabled yet or the network blocks WebSockets).
+                error = "Live updates unavailable. Checking for messages every few seconds."
+            }
+
+            while (isActive) {
+                delay(if (realtimeConnected) 30_000L else 5_000L)
+                try {
+                    messages = UsChatRepository.loadMessages(activeRoomId)
+                    if (!realtimeConnected) {
+                        error = null
+                    }
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
                     error = failure.message ?: "Couldn't refresh messages. Check your connection."
                 }
-                loading = false
-                delay(5_000)
             }
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (failure: Exception) {
-            loading = false
-            error = failure.message ?: "Couldn't connect to Us Chat."
+        } finally {
+            collector.cancel()
+            runCatching { supabase.realtime.removeChannel(channel) }
         }
     }
 
