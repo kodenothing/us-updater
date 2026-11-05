@@ -97,6 +97,10 @@ internal fun UsChatScreen(
     var outboxMessages by remember(coupleCode, currentUid) {
         mutableStateOf<List<UsChatOutboxEntry>>(emptyList())
     }
+    var readStates by remember(coupleCode, currentUid) {
+        mutableStateOf<List<UsChatReadState>>(emptyList())
+    }
+    val partnerReadState = readStates.firstOrNull { it.readerUid != currentUid }
     val timelineMessages = remember(messages, outboxMessages) {
         buildChatTimeline(messages, outboxMessages)
     }
@@ -163,6 +167,7 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.listForRoom(context, room.id, currentUid)
             }
             hasInitialPage = true
+            readStates = UsChatRepository.loadReadStates(room.id)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
