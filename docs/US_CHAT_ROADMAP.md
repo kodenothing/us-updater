@@ -1,6 +1,6 @@
 # Us Chat — v2.5.0 and Beyond Roadmap
 
-This is the **master roadmap** for the Us Chat feature. The detailed reliability implementation and acceptance criteria are in [US_CHAT_STAGE_4_ROADMAP.md](./US_CHAT_STAGE_4_ROADMAP.md). Stage-specific setup and implementation notes remain in the Stage 0–3 documents alongside this file.
+This is the **master roadmap** for the Us Chat feature. The detailed reliability implementation and acceptance criteria are in [US_CHAT_STAGE_4_ROADMAP.md](./US_CHAT_STAGE_4_ROADMAP.md). The hands-on device/security test tracker is [US_CHAT_TEST_CHECKLIST.md](./US_CHAT_TEST_CHECKLIST.md). Stage-specific setup and implementation notes remain in the Stage 0–3 documents alongside this file.
 
 ## Product objective
 
