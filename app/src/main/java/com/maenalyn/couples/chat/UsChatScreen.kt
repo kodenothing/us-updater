@@ -1,6 +1,5 @@
 package com.maenalyn.couples.chat
 
-import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -14,7 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -43,8 +42,6 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
@@ -52,20 +49,27 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.jan.supabase.postgrest.query.filter.FilterOperator
-import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.Realtime
 import io.github.jan.supabase.realtime.RealtimeChannel
+import io.github.jan.supabase.realtime.PostgresAction
 import io.github.jan.supabase.realtime.channel
 import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.UUID
+
+private data class FailedChatSend(
+    val body: String,
+    val clientMessageId: String
+)
 
 @Composable
 internal fun UsChatScreen(
@@ -75,7 +79,6 @@ internal fun UsChatScreen(
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
-    val context = LocalContext.current.applicationContext
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
 
@@ -88,9 +91,9 @@ internal fun UsChatScreen(
     var sending by remember { mutableStateOf(false) }
     var error by remember(coupleCode, currentUid) { mutableStateOf<String?>(null) }
     var refreshTrigger by remember { mutableIntStateOf(0) }
-    var partnerReadCursor by remember(coupleCode, currentUid) { mutableStateOf<UsChatRoomRead?>(null) }
     var realtimeLabel by remember(coupleCode, currentUid) { mutableStateOf("Connecting…") }
     var hasInitialPage by remember(coupleCode, currentUid) { mutableStateOf(false) }
+    var failedSend by remember { mutableStateOf<FailedChatSend?>(null) }
 
     LaunchedEffect(coupleCode, currentUid, refreshTrigger) {
         loading = messages.isEmpty()
@@ -100,28 +103,12 @@ internal fun UsChatScreen(
             roomId = room.id
 
             val page = UsChatRepository.loadLatestMessages(room.id)
-            val queued = UsChatOutboxStore.forRoom(context, room.id)
-                .filter { it.senderUid == currentUid }
-            if (!hasInitialPage) {
-                // Recover a message saved locally if the process stopped in
-                // the small window between SQLite persistence and Work enqueue.
-                queued.filter { it.status == UsChatOutboxMessage.STATUS_PENDING }.forEach {
-                    UsChatOutboxScheduler.enqueue(context, room.id, it.clientMessageId)
-                }
-            }
-            val confirmedClientIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
-            queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
-                UsChatOutboxStore.delete(context, it.clientMessageId)
-            }
-            val remainingQueued = queued.filterNot { it.clientMessageId in confirmedClientIds }
             messages = mergeChatTimeline(
                 current = if (hasInitialPage) messages else emptyList(),
-                latestServerPage = page.messages,
-                queuedMessages = remainingQueued
+                incoming = page.messages
             )
             if (!hasInitialPage) hasOlderMessages = page.hasMore
             hasInitialPage = true
-            partnerReadCursor = UsChatRepository.loadPartnerReadCursor(room.id, currentUid)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
@@ -131,40 +118,27 @@ internal fun UsChatScreen(
         }
     }
 
-    // 4.2: one room-scoped channel and collectors. The SDK owns WebSocket
-    // reconnection; channel status changes trigger an immediate authoritative
-    // refresh. Polling recovers missed events and covers subscription failures.
-    LaunchedEffect(roomId, currentUid) {
+    // Stage 4.2: observe both the WebSocket and this room's channel. The
+    // Supabase Kotlin 3.1.4 client reconnects its socket and rejoins channels.
+    // We refresh from PostgREST after both layers report a successful rejoin.
+    LaunchedEffect(roomId) {
         val activeRoomId = roomId ?: return@LaunchedEffect
         val supabase = SupabaseChatClientProvider.get()
         val channel = supabase.realtime.channel("us-chat-$activeRoomId")
-
-        val messageChanges = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+        val changeFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "chat_messages"
-            filter("room_id", FilterOperator.EQ, activeRoomId)
-        }
-        val readChanges = channel.postgresChangeFlow<PostgresAction>(schema = "public") {
-            table = "chat_room_reads"
-            filter("room_id", FilterOperator.EQ, activeRoomId)
+            filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
         }
 
         var realtimeConnected = false
 
         suspend fun syncLatest() {
             val page = UsChatRepository.loadLatestMessages(activeRoomId)
-            val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
-                .filter { it.senderUid == currentUid }
-            val confirmedClientIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
-            queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
-                UsChatOutboxStore.delete(context, it.clientMessageId)
-            }
-            val remainingQueued = queued.filterNot { it.clientMessageId in confirmedClientIds }
-            messages = mergeChatTimeline(messages, page.messages, remainingQueued)
-            partnerReadCursor = UsChatRepository.loadPartnerReadCursor(activeRoomId, currentUid)
+            messages = mergeChatTimeline(messages, page.messages)
         }
 
         val messageCollector = launch {
-            messageChanges.collect {
+            changeFlow.collect {
                 try {
                     syncLatest()
                     error = null
@@ -176,25 +150,19 @@ internal fun UsChatScreen(
             }
         }
 
-        val readCollector = launch {
-            readChanges.collect {
-                try {
-                    partnerReadCursor = UsChatRepository.loadPartnerReadCursor(activeRoomId, currentUid)
-                } catch (cancelled: CancellationException) {
-                    throw cancelled
-                } catch (_: Exception) {
-                    // The next receipt event or safety poll will refresh the cursor.
+        val connectionCollector = launch {
+            combine(supabase.realtime.status, channel.status) { socketStatus, channelStatus ->
+                socketStatus == Realtime.Status.CONNECTED &&
+                    channelStatus == RealtimeChannel.Status.SUBSCRIBED
+            }.collect { connected ->
+                val justRecovered = connected && !realtimeConnected
+                realtimeConnected = connected
+                realtimeLabel = when {
+                    connected -> "Live updates"
+                    supabase.realtime.status.value == Realtime.Status.DISCONNECTED -> "Reconnecting…"
+                    else -> "Connecting…"
                 }
-            }
-        }
-
-        val statusCollector = launch {
-            var wasConnected = false
-            channel.status.collect { status ->
-                realtimeConnected = status == RealtimeChannel.Status.SUBSCRIBED
-                realtimeLabel = if (realtimeConnected) "Live updates" else "Reconnecting…"
-
-                if (realtimeConnected && !wasConnected) {
+                if (justRecovered) {
                     try {
                         syncLatest()
                         error = null
@@ -204,31 +172,25 @@ internal fun UsChatScreen(
                         error = failure.message ?: "Chat reconnected, but messages couldn't refresh."
                     }
                 }
-                wasConnected = realtimeConnected
             }
         }
 
         try {
             try {
-                channel.subscribe(blockUntilSubscribed = true)
-                realtimeConnected = true
-                realtimeLabel = "Live updates"
-                syncLatest()
+                // Keep this non-blocking. A failed first handshake must not
+                // prevent the fallback sync loop from running.
+                channel.subscribe()
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
-                realtimeConnected = false
-                realtimeLabel = "Checking connection…"
+                realtimeLabel = "Reconnecting…"
             }
 
             while (isActive) {
                 delay(if (realtimeConnected) 30_000L else 5_000L)
                 try {
                     syncLatest()
-                    if (!realtimeConnected) {
-                        realtimeLabel = "Checking connection…"
-                    }
-                    error = null
+                    if (realtimeConnected) error = null
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
@@ -238,27 +200,8 @@ internal fun UsChatScreen(
             }
         } finally {
             messageCollector.cancel()
-            readCollector.cancel()
-            statusCollector.cancel()
+            connectionCollector.cancel()
             runCatching { supabase.realtime.removeChannel(channel) }
-        }
-    }
-
-    val latestServerMessage = messages.lastOrNull {
-        !it.isPending && it.sendError == null
-    }
-
-    // 4.3: opening the conversation or receiving a newer server message moves
-    // this member's cursor forward. The partner's cursor is received separately.
-    LaunchedEffect(roomId, currentUid, latestServerMessage?.id, refreshTrigger) {
-        val activeRoomId = roomId ?: return@LaunchedEffect
-        val latest = latestServerMessage ?: return@LaunchedEffect
-        try {
-            UsChatRepository.markRead(activeRoomId, currentUid, latest.id)
-        } catch (cancelled: CancellationException) {
-            throw cancelled
-        } catch (_: Exception) {
-            // A later refresh or new message will retry this read-cursor write.
         }
     }
 
@@ -270,45 +213,28 @@ internal fun UsChatScreen(
 
     fun loadOlderMessages() {
         val activeRoomId = roomId ?: return
-        val cursor = messages.firstOrNull { !it.isPending && it.sendError == null } ?: return
+        val cursor = messages.firstOrNull() ?: return
         if (loadingOlder || !hasOlderMessages) return
 
         scope.launch {
             loadingOlder = true
             try {
+                val previousTopId = messages.getOrNull(listState.firstVisibleItemIndex)?.id
+                val previousOffset = listState.firstVisibleItemScrollOffset
                 val olderPage = UsChatRepository.loadMessagesBefore(activeRoomId, cursor)
-                val queued = UsChatOutboxStore.forRoom(context, activeRoomId)
-                    .filter { it.senderUid == currentUid }
-                val confirmedClientIds = olderPage.messages.mapNotNull { it.clientMessageId }.toSet()
-                queued.filter { it.clientMessageId in confirmedClientIds }.forEach {
-                    UsChatOutboxStore.delete(context, it.clientMessageId)
-                }
-                val remainingQueued = queued.filterNot { it.clientMessageId in confirmedClientIds }
-                messages = mergeChatTimeline(messages, olderPage.messages, remainingQueued)
+                val updated = mergeChatTimeline(messages, olderPage.messages)
+                messages = updated
                 hasOlderMessages = olderPage.hasMore
+                val anchorIndex = previousTopId?.let { id ->
+                    updated.indexOfFirst { it.id == id }
+                } ?: -1
+                if (anchorIndex >= 0) listState.scrollToItem(anchorIndex, previousOffset)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
                 error = failure.message ?: "Couldn't load older messages."
             } finally {
                 loadingOlder = false
-            }
-        }
-    }
-
-    fun retryQueuedMessage(message: UsChatMessage) {
-        val clientMessageId = message.clientMessageId ?: return
-        scope.launch {
-            try {
-                UsChatOutboxStore.markPending(context, clientMessageId)
-                val queued = UsChatOutboxStore.forRoom(context, message.roomId)
-                    .filter { it.senderUid == currentUid }
-                messages = mergeChatTimeline(messages, emptyList(), queued)
-                UsChatOutboxScheduler.enqueue(context, message.roomId, clientMessageId)
-            } catch (cancelled: CancellationException) {
-                throw cancelled
-            } catch (failure: Exception) {
-                error = failure.message ?: "Couldn't retry this message."
             }
         }
     }
@@ -322,45 +248,36 @@ internal fun UsChatScreen(
             return
         }
 
+        // Keep one UUID for retries of the same draft so a timed-out request
+        // that actually committed cannot create a second database row.
+        val clientMessageId = failedSend
+            ?.takeIf { it.body == body }
+            ?.clientMessageId
+            ?: UUID.randomUUID().toString()
+
         scope.launch {
             sending = true
             error = null
             try {
-                val queued = UsChatOutboxMessage(
-                    clientMessageId = UUID.randomUUID().toString(),
+                val saved = UsChatRepository.sendMessage(
                     roomId = activeRoomId,
                     senderUid = currentUid,
                     body = body,
-                    createdAt = Instant.now().toString(),
-                    status = UsChatOutboxMessage.STATUS_PENDING,
-                    lastError = null
+                    clientMessageId = clientMessageId
                 )
-                UsChatOutboxStore.enqueue(context, queued)
-                val pending = UsChatOutboxStore.forRoom(context, activeRoomId)
-                messages = mergeChatTimeline(messages, emptyList(), pending)
+                messages = mergeChatTimeline(messages, listOf(saved))
                 draft = ""
-                UsChatOutboxScheduler.enqueue(context, activeRoomId, queued.clientMessageId)
+                failedSend = null
+                error = null
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = failure.message ?: "Message couldn't be queued. Please try again."
+                failedSend = FailedChatSend(body, clientMessageId)
+                error = failure.message ?: "Message couldn't be sent. Your draft is still here; retry it."
             } finally {
                 sending = false
             }
         }
-    }
-
-    val partnerReadMessageId = partnerReadCursor?.lastReadMessageId
-    val partnerReadIndex = messages.indexOfFirst { it.id == partnerReadMessageId }
-    val lastSeenMineIndex = if (partnerReadIndex >= 0) {
-        messages.indices.lastOrNull { index ->
-            index <= partnerReadIndex &&
-                messages[index].senderUid == currentUid &&
-                !messages[index].isPending &&
-                messages[index].sendError == null
-        }
-    } else {
-        null
     }
 
     Column(
@@ -419,8 +336,10 @@ internal fun UsChatScreen(
                         fontSize = 12.sp,
                         modifier = Modifier.weight(1f)
                     )
-                    TextButton(onClick = { refreshTrigger++ }) {
-                        Text("Retry", color = colors.onErrorContainer)
+                    TextButton(onClick = {
+                        if (failedSend != null) sendDraft() else refreshTrigger++
+                    }) {
+                        Text(if (failedSend != null) "Retry send" else "Retry", color = colors.onErrorContainer)
                     }
                 }
             }
@@ -492,15 +411,8 @@ internal fun UsChatScreen(
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
-                    items(messages, key = { it.id }) { message ->
-                        val index = messages.indexOf(message)
-                        val mine = message.senderUid == currentUid
-                        ChatMessageBubble(
-                            message = message,
-                            mine = mine,
-                            seen = mine && index == lastSeenMineIndex,
-                            onRetry = { retryQueuedMessage(message) }
-                        )
+                    itemsIndexed(messages, key = { _, message -> message.id }) { _, message ->
+                        ChatMessageBubble(message = message, mine = message.senderUid == currentUid)
                     }
                 }
             }
@@ -517,7 +429,10 @@ internal fun UsChatScreen(
             ) {
                 OutlinedTextField(
                     value = draft,
-                    onValueChange = { draft = it.take(4000) },
+                    onValueChange = {
+                        draft = it.take(4000)
+                        if (failedSend?.body != it.trim()) failedSend = null
+                    },
                     modifier = Modifier.weight(1f),
                     placeholder = { Text("Write something sweet…", fontSize = 14.sp) },
                     shape = RoundedCornerShape(24.dp),
@@ -548,35 +463,23 @@ internal fun UsChatScreen(
 
 private fun mergeChatTimeline(
     current: List<UsChatMessage>,
-    latestServerPage: List<UsChatMessage>,
-    queuedMessages: List<UsChatOutboxMessage>
+    incoming: List<UsChatMessage>
 ): List<UsChatMessage> {
-    val serverMessages = (current.filter { !it.isPending && it.sendError == null } + latestServerPage)
-        .distinctBy { it.id }
-    val confirmedClientIds = serverMessages.mapNotNull { it.clientMessageId }.toSet()
-    val localMessages = queuedMessages
-        .filterNot { it.clientMessageId in confirmedClientIds }
-        .map { it.asPendingMessage() }
+    val byId = LinkedHashMap<String, UsChatMessage>()
+    (current + incoming).forEach { message -> byId[message.id] = message }
 
-    return (serverMessages + localMessages)
+    return byId.values
         .distinctBy { it.clientMessageId ?: it.id }
         .sortedWith { left, right ->
             val timeComparison = runCatching {
                 Instant.parse(left.createdAt).compareTo(Instant.parse(right.createdAt))
-            }.getOrElse {
-                left.createdAt.compareTo(right.createdAt)
-            }
+            }.getOrElse { left.createdAt.compareTo(right.createdAt) }
             if (timeComparison != 0) timeComparison else left.id.compareTo(right.id)
         }
 }
 
 @Composable
-private fun ChatMessageBubble(
-    message: UsChatMessage,
-    mine: Boolean,
-    seen: Boolean,
-    onRetry: () -> Unit
-) {
+private fun ChatMessageBubble(message: UsChatMessage, mine: Boolean) {
     val colors = MaterialTheme.colorScheme
     val bubbleColor = if (mine) colors.primary else colors.surfaceVariant
     val textColor = if (mine) colors.onPrimary else colors.onSurfaceVariant
@@ -613,46 +516,15 @@ private fun ChatMessageBubble(
                     modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
                 )
             }
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp)
-            ) {
-                Text(
-                    time,
-                    color = colors.onSurfaceVariant.copy(alpha = 0.7f),
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Clip
-                )
-                when {
-                    message.sendError != null -> {
-                        TextButton(onClick = onRetry) {
-                            Text("Not sent · Retry", fontSize = 10.sp, color = colors.error)
-                        }
-                    }
-                    message.isAwaitingSync -> {
-                        Text(
-                            " · Sent · syncing…",
-                            color = colors.onSurfaceVariant,
-                            fontSize = 10.sp
-                        )
-                    }
-                    message.isPending -> {
-                        Text(
-                            " · Sending…",
-                            color = colors.onSurfaceVariant,
-                            fontSize = 10.sp
-                        )
-                    }
-                    seen -> {
-                        Text(
-                            " · Seen",
-                            color = colors.primary,
-                            fontSize = 10.sp
-                        )
-                    }
-                }
-            }
+            Text(
+                time,
+                color = colors.onSurfaceVariant.copy(alpha = 0.7f),
+                fontSize = 10.sp,
+                modifier = Modifier.padding(horizontal = 5.dp, vertical = 2.dp),
+                maxLines = 1,
+                overflow = TextOverflow.Clip
+            )
         }
     }
+}
 }
