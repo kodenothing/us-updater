@@ -105,7 +105,14 @@ internal object UsChatOutboxStore {
             put("status", UsChatOutboxMessage.STATUS_PENDING)
             putNull("last_error")
         }
-        database(context).insertWithOnConflict(TABLE, null, values, SQLiteDatabase.CONFLICT_REPLACE)
+        check(
+            database(context).insertWithOnConflict(
+                TABLE,
+                null,
+                values,
+                SQLiteDatabase.CONFLICT_REPLACE
+            ) != -1L
+        ) { "Couldn't save this message to the local outbox." }
     }
 
     suspend fun get(context: Context, clientMessageId: String): UsChatOutboxMessage? =
