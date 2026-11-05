@@ -130,6 +130,16 @@ begin
         pg_catalog.hashtextextended(new.room_id::text, 0)
     );
 
+    -- Let an idempotent seed attempt reach its ON CONFLICT handler.
+    if exists (
+        select 1
+          from public.chat_room_members as m
+         where m.room_id = new.room_id
+           and m.firebase_uid = new.firebase_uid
+    ) then
+        return new;
+    end if;
+
     select count(*)::integer
       into v_member_count
       from public.chat_room_members as m
