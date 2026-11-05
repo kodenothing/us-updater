@@ -64,11 +64,12 @@ internal object UsChatRepository {
                 filter {
                     eq("room_id", roomId)
                 }
-                order("created_at", Order.ASCENDING)
-                order("id", Order.ASCENDING)
-                limit(100)
+                order(column = "created_at", order = Order.DESCENDING)
+                order(column = "id", order = Order.DESCENDING)
+                limit(count = 100L)
             }
             .decodeList<UsChatMessage>()
+            .reversed()
     }
 
     suspend fun sendMessage(roomId: String, senderUid: String, text: String) {
