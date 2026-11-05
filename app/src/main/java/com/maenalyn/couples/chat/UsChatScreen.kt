@@ -202,7 +202,7 @@ internal fun UsChatScreen(
                 }
             }
             messages.isEmpty() -> {
-                Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Column(
                         Modifier.padding(horizontal = 34.dp),
                         horizontalAlignment = Alignment.CenterHorizontally
