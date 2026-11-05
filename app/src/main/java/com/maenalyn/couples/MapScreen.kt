@@ -40,7 +40,7 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
-import androidx.compose.material3.Divider
+import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -78,19 +78,20 @@ import org.json.JSONObject
 import java.net.HttpURLConnection
 import java.net.URL
 import org.maplibre.android.MapLibre
-import org.maplibre.android.annotations.IconFactory
-import org.maplibre.android.annotations.Marker
-import org.maplibre.android.annotations.MarkerOptions
 import org.maplibre.android.camera.CameraPosition
 import org.maplibre.android.camera.CameraUpdateFactory
 import org.maplibre.android.geometry.LatLng
 import org.maplibre.android.maps.MapLibreMap
 import org.maplibre.android.maps.MapLibreMapOptions
 import org.maplibre.android.maps.MapView
+import org.maplibre.android.plugins.annotation.Line
+import org.maplibre.android.plugins.annotation.LineManager
+import org.maplibre.android.plugins.annotation.LineOptions
+import org.maplibre.android.plugins.annotation.Symbol
+import org.maplibre.android.plugins.annotation.SymbolManager
+import org.maplibre.android.plugins.annotation.SymbolOptions
 import android.graphics.LinearGradient
 import android.graphics.Shader
-import org.maplibre.android.annotations.Polyline
-import org.maplibre.android.annotations.PolylineOptions
 import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.pow
@@ -602,7 +603,7 @@ fun OurMapTab(
                             )
                         }
 
-                        Divider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                        HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Box(
@@ -628,7 +629,7 @@ fun OurMapTab(
                             )
                         }
 
-                        Divider(color = cs.outlineVariant.copy(alpha = 0.55f))
+                        HorizontalDivider(color = cs.outlineVariant.copy(alpha = 0.55f))
 
                         Row(verticalAlignment = Alignment.CenterVertically) {
                             Column(Modifier.weight(1f)) {
@@ -814,6 +815,13 @@ private data class MapPin(
     val isPending: Boolean = false
 )
 
+private fun mapPinSnippet(pin: MapPin): String = when {
+    pin.isPending -> "Selected map location"
+    pin.isPlace -> "Saved shared place"
+    pin.title.endsWith(" · last known") -> "Last known location · updates delayed"
+    else -> "Live shared location"
+}
+
 @Composable
 private fun MapLibreSurface(
     pins: List<MapPin>,
@@ -834,10 +842,16 @@ private fun MapLibreSurface(
     val mapError = remember { mutableStateOf<String?>(null) }
     val mapAttempt = remember { mutableIntStateOf(0) }
     val fallbackStyleUsed = remember { mutableStateOf(false) }
-    val markers = remember { mutableMapOf<String, Marker>() }
+    val symbols = remember { mutableMapOf<String, Symbol>() }
+    val symbolUidById = remember { mutableMapOf<Long, String>() }
+    val registeredMarkerImages = remember { mutableSetOf<String>() }
+    val symbolManager = remember { mutableStateOf<SymbolManager?>(null) }
+    val lineManager = remember { mutableStateOf<LineManager?>(null) }
     val markerAnimators = remember { mutableMapOf<String, ValueAnimator>() }
-    val routeLine = remember { mutableStateOf<Polyline?>(null) }
+    val routeLine = remember { mutableStateOf<Line?>(null) }
     val routeAnimator = remember { mutableStateOf<ValueAnimator?>(null) }
+    val selectedMapPin = remember { mutableStateOf<MapPin?>(null) }
+    val currentPins by rememberUpdatedState(pins)
     val userHasMovedMap = remember { mutableStateOf(false) }
     val lastAutoFrameLocations = remember {
         mutableStateOf<Map<String, Pair<Double, Double>>>(emptyMap())
@@ -878,12 +892,32 @@ private fun MapLibreSurface(
         styleLoaded.value = false
         routeAnimator.value?.cancel()
         routeAnimator.value = null
-        routeLine.value?.let { line ->
-            runCatching { map.removePolyline(line) }
-        }
+        markerAnimators.values.forEach { it.cancel() }
+        markerAnimators.clear()
+        symbolManager.value?.onDestroy()
+        lineManager.value?.onDestroy()
+        symbolManager.value = null
+        lineManager.value = null
+        symbols.clear()
+        symbolUidById.clear()
+        registeredMarkerImages.clear()
         routeLine.value = null
+        selectedMapPin.value = null
         Log.i(MAP_TAG, "STYLE: requesting $url")
-        map.setStyle(url) {
+        map.setStyle(url) { style ->
+            val newSymbolManager = SymbolManager(mapView, map, style)
+            newSymbolManager.iconAllowOverlap = true
+            newSymbolManager.textAllowOverlap = true
+            newSymbolManager.addClickListener { clickedSymbol ->
+                val uid = symbolUidById[clickedSymbol.id]
+                val selected = uid?.let { selectedUid ->
+                    currentPins.firstOrNull { it.uid == selectedUid }
+                }
+                selectedMapPin.value = selected
+                selected != null
+            }
+            symbolManager.value = newSymbolManager
+            lineManager.value = LineManager(mapView, map, style)
             Log.i(MAP_TAG, "STYLE: loaded ($url)")
             mapState.value = map
             mapLoading.value = false
@@ -974,6 +1008,34 @@ private fun MapLibreSurface(
                 }
             }
         }
+        selectedMapPin.value?.let { pin ->
+            Surface(
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(14.dp)
+                    .fillMaxWidth(),
+                shape = RoundedCornerShape(18.dp),
+                color = MaterialTheme.colorScheme.surface.copy(alpha = 0.97f),
+                shadowElevation = 5.dp
+            ) {
+                Row(
+                    modifier = Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        Text(pin.title, style = MaterialTheme.typography.titleSmall)
+                        Text(
+                            mapPinSnippet(pin),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+                    TextButton(onClick = { selectedMapPin.value = null }) {
+                        Text("Close")
+                    }
+                }
+            }
+        }
     }
 
     // Lifecycle: forwards onCreate/onStart/onResume/onPause/onStop/onDestroy to the MapView,
@@ -1059,22 +1121,26 @@ private fun MapLibreSurface(
             mapState.value?.let { map ->
                 longClickListener?.let(map::removeOnMapLongClickListener)
                 cameraMoveStartedListener?.let(map::removeOnCameraMoveStartedListener)
-                routeLine.value?.let { line ->
-                    runCatching { map.removePolyline(line) }
-                }
             }
             longClickListener = null
             cameraMoveStartedListener = null
             routeLine.value = null
             lastAutoFrameLocations.value = emptyMap()
+            markerAnimators.values.forEach { it.cancel() }
+            markerAnimators.clear()
+            symbolManager.value?.onDestroy()
+            lineManager.value?.onDestroy()
+            symbolManager.value = null
+            lineManager.value = null
+            symbols.clear()
+            symbolUidById.clear()
+            registeredMarkerImages.clear()
+            selectedMapPin.value = null
             runCatching {
                 if (resumed) mapView.onPause()
                 if (started) mapView.onStop()
                 if (!destroyed) mapView.onDestroy()
             }
-            markerAnimators.values.forEach { it.cancel() }
-            markerAnimators.clear()
-            markers.clear()
             focusedFirstPair.value = false
             focusedAnyLocation.value = false
             mapState.value = null
@@ -1085,73 +1151,83 @@ private fun MapLibreSurface(
     LaunchedEffect(mapState.value, styleLoaded.value, pins, roadRoutePoints) {
         val libreMap = mapState.value ?: return@LaunchedEffect
         if (!styleLoaded.value) return@LaunchedEffect
+        val activeSymbolManager = symbolManager.value ?: return@LaunchedEffect
+        val activeLineManager = lineManager.value ?: return@LaunchedEffect
+        val activeStyle = libreMap.style ?: return@LaunchedEffect
 
         val requested = pins.associateBy { it.uid }
-        (markers.keys - requested.keys).toList().forEach { uid ->
+        (symbols.keys - requested.keys).toList().forEach { uid ->
             markerAnimators.remove(uid)?.cancel()
-            markers.remove(uid)?.let { libreMap.removeMarker(it) }
+            symbols.remove(uid)?.let { symbol ->
+                activeSymbolManager.delete(symbol)
+                symbolUidById.remove(symbol.id)
+            }
+            if (selectedMapPin.value?.uid == uid) selectedMapPin.value = null
         }
 
         requested.values.forEach { pin ->
             val target = LatLng(pin.latitude, pin.longitude)
-            val marker = markers[pin.uid]
-            if (marker == null) {
-                val iconFactory = IconFactory.getInstance(context)
-                val markerIcon = iconFactory.fromBitmap(
-                    createHeartMarkerBitmap(
-                        context = context,
-                        isMine = pin.isMine,
-                        isPlace = pin.isPlace,
-                        isPending = pin.isPending,
-                        initial = pin.title.firstOrNull()?.uppercaseChar()?.toString().orEmpty()
-                    )
+            val initial = pin.title.firstOrNull()?.uppercaseChar()?.toString().orEmpty()
+            val imageId = "us-heart-" + pin.uid.hashCode() + "-" +
+                pin.isMine + "-" + pin.isPlace + "-" + pin.isPending + "-" + initial.hashCode()
+
+            if (imageId !in registeredMarkerImages) {
+                val bitmap = createHeartMarkerBitmap(
+                    context = context,
+                    isMine = pin.isMine,
+                    isPlace = pin.isPlace,
+                    isPending = pin.isPending,
+                    initial = initial
                 )
-                markers[pin.uid] = libreMap.addMarker(
-                    MarkerOptions().position(target).title(pin.title)
-                        .snippet(
-                            when {
-                                pin.isPending -> "Selected map location"
-                                pin.isPlace -> "Saved shared place"
-                                pin.title.endsWith(" · last known") -> "Last known location · updates delayed"
-                                else -> "Live shared location"
-                            }
-                        )
-                        .icon(markerIcon)
-                )
-            } else {
-                marker.title = pin.title
-                marker.snippet = when {
-                    pin.isPending -> "Selected map location"
-                    pin.isPlace -> "Saved shared place"
-                    pin.title.endsWith(" · last known") -> "Last known location · updates delayed"
-                    else -> "Live shared location"
+                try {
+                    activeStyle.addImage(imageId, bitmap)
+                } finally {
+                    bitmap.recycle()
                 }
-                libreMap.updateMarker(marker)
-                val start = marker.position
-                if (kotlin.math.abs(start.latitude - target.latitude) > 0.000001 ||
-                    kotlin.math.abs(start.longitude - target.longitude) > 0.000001) {
+                registeredMarkerImages.add(imageId)
+            }
+
+            val symbol = symbols[pin.uid]
+            if (symbol == null) {
+                val created = activeSymbolManager.create(
+                    SymbolOptions()
+                        .withLatLng(target)
+                        .withIconImage(imageId)
+                )
+                symbols[pin.uid] = created
+                symbolUidById[created.id] = pin.uid
+            } else {
+                val appearanceChanged = symbol.iconImage != imageId
+                if (appearanceChanged) symbol.iconImage = imageId
+
+                val start = symbol.latLng
+                val moved = kotlin.math.abs(start.latitude - target.latitude) > 0.000001 ||
+                    kotlin.math.abs(start.longitude - target.longitude) > 0.000001
+                if (moved) {
                     markerAnimators.remove(pin.uid)?.cancel()
                     val animator = ValueAnimator.ofFloat(0f, 1f).apply {
                         duration = 1_600L
                         interpolator = AccelerateDecelerateInterpolator()
                         addUpdateListener { valueAnimator ->
                             val fraction = valueAnimator.animatedValue as Float
-                            marker.position = LatLng(
+                            symbol.latLng = LatLng(
                                 start.latitude + (target.latitude - start.latitude) * fraction,
                                 start.longitude + (target.longitude - start.longitude) * fraction
                             )
-                            libreMap.updateMarker(marker)
+                            activeSymbolManager.update(symbol)
                         }
                         addListener(object : android.animation.AnimatorListenerAdapter() {
                             override fun onAnimationEnd(animation: android.animation.Animator) {
-                                marker.position = target
-                                libreMap.updateMarker(marker)
+                                symbol.latLng = target
+                                activeSymbolManager.update(symbol)
                                 markerAnimators.remove(pin.uid)
                             }
                         })
                     }
                     markerAnimators[pin.uid] = animator
                     animator.start()
+                } else if (appearanceChanged) {
+                    activeSymbolManager.update(symbol)
                 }
             }
         }
@@ -1160,44 +1236,33 @@ private fun MapLibreSurface(
         val livePair = pins
             .filter { !it.isPlace && !it.isPending }
             .take(2)
-
         val roadPoints = roadRoutePoints
 
         if (livePair.size == 2 && roadPoints != null && roadPoints.size >= 2) {
-
             routeAnimator.value?.cancel()
             routeAnimator.value = null
-
             val currentLine = routeLine.value
-
             if (currentLine == null) {
-                routeLine.value = libreMap.addPolyline(
-                    PolylineOptions()
-                        .addAll(roadPoints)
-                        .color(AndroidColor.rgb(126, 94, 196))
-                        .width(5f)
-                        .alpha(0.88f)
+                routeLine.value = activeLineManager.create(
+                    LineOptions()
+                        .withLatLngs(roadPoints)
+                        .withLineColor("#7E5EC4")
+                        .withLineWidth(5f)
+                        .withLineOpacity(0.88f)
                 )
-            } else if (currentLine.points != roadPoints) {
-                currentLine.points = roadPoints
-                libreMap.updatePolyline(currentLine)
+            } else if (currentLine.latLngs != roadPoints) {
+                currentLine.latLngs = roadPoints
+                activeLineManager.update(currentLine)
             }
-
         } else {
-
             // Never display a fake straight line as a road route.
             routeAnimator.value?.cancel()
             routeAnimator.value = null
-
             routeLine.value?.let { line ->
-                runCatching {
-                    libreMap.removePolyline(line)
-                }
+                runCatching { activeLineManager.delete(line) }
             }
-
             routeLine.value = null
         }
-
         val focusPins = pins.filterNot { it.isPlace }.ifEmpty { pins }
         val nextLocations = focusPins.associate { it.uid to (it.latitude to it.longitude) }
         val previousLocations = lastAutoFrameLocations.value

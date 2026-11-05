@@ -43,7 +43,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
-import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Chat
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.CheckCircle
@@ -73,6 +74,7 @@ import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalLayoutDirection
 import androidx.core.content.ContextCompat
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.graphics.graphicsLayer
@@ -92,6 +94,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import com.maenalyn.couples.chat.UsChatScreen
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -421,7 +424,7 @@ fun PairingFlowScreen(vm: MainVm, code: String) {
                 shadowElevation = 3.dp
             ) {
                 IconButton(onClick = requestCancel, enabled = !busy) {
-                    Icon(Icons.Filled.ArrowBack, contentDescription = "Back to pairing")
+                    Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = "Back to pairing")
                 }
             }
         }
@@ -597,6 +600,7 @@ fun HomeScreen(vm: MainVm) {
     val savedPlaces by vm.savedPlaces.collectAsState()
     val placeAlertsEnabled by vm.placeAlertsEnabled.collectAsState()
     val currentUid = Repo.currentUid()
+    val partnerName = couple?.memberNames?.entries?.firstOrNull { it.key != currentUid }?.value.orEmpty().ifBlank { "your person" }
     val dailyUs by vm.dailyUs.collectAsState()
     val busy by vm.busy.collectAsState()
     val appLockEnabled by vm.appLockEnabled.collectAsState()
@@ -609,7 +613,7 @@ fun HomeScreen(vm: MainVm) {
     val heartSizeDp by vm.heartSizeDp.collectAsState()
     val heartAnimationDurationMs by vm.heartAnimationDurationMs.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    BackHandler(enabled = tab == 8) { tab = 0 }
+    BackHandler(enabled = tab == 8 || tab == 9) { tab = 0 }
     var confirm by remember { mutableStateOf(false) }
     var showDailyUs by remember { mutableStateOf(false) }
     var todayKey by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -762,6 +766,7 @@ fun HomeScreen(vm: MainVm) {
     LaunchedEffect(dailyDateKey) { vm.watchDailyUs(dailyDateKey) }
     val snack = remember { SnackbarHostState() }
     val cs = MaterialTheme.colorScheme
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     LaunchedEffect(msg) { msg?.let { snack.showSnackbar(it); vm.message.value = null } }
 
     val tabs = listOf(
@@ -796,6 +801,7 @@ fun HomeScreen(vm: MainVm) {
                             tab == 4 -> "Things we're doing and dreaming"
                             tab == 7 -> "See where we are"
                             tab == 8 -> "Our Instant"
+                            tab == 9 -> "A little space for your words"
                             else -> ""
                         }
                         if (subtitle.isNotBlank()) {
@@ -815,6 +821,13 @@ fun HomeScreen(vm: MainVm) {
                             tint = if (tab == 7) cs.primary else cs.onSurface
                         )
                     }
+                    IconButton(onClick = { tab = 9 }) {
+                        Icon(
+                            Icons.AutoMirrored.Filled.Chat,
+                            contentDescription = "Us Chat",
+                            tint = if (tab == 9) cs.primary else cs.onSurface
+                        )
+                    }
                     IconButton(onClick = { tab = 6 }) {
                         Icon(
                             Icons.Filled.Settings,
@@ -826,16 +839,19 @@ fun HomeScreen(vm: MainVm) {
                 colors = TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = Color.Transparent)
             )
         },
-        bottomBar = {
-            UsBottomNavigationBar(
-                tabs = tabs,
-                selectedTab = tab,
-                onTabSelected = { tab = it }
-            )
-        }
     ) { pad ->
-        AnimatedContent(
-            targetState = tab,
+        val layoutDirection = LocalLayoutDirection.current
+        val screenPad = PaddingValues(
+            start = pad.calculateStartPadding(layoutDirection),
+            top = pad.calculateTopPadding(),
+            end = pad.calculateEndPadding(layoutDirection),
+            bottom = pad.calculateBottomPadding() + if (imeVisible) 0.dp else 112.dp
+        )
+
+        Box(Modifier.fillMaxSize()) {
+            AnimatedContent(
+                modifier = Modifier.fillMaxSize(),
+                targetState = tab,
             transitionSpec = {
                 if (initialState == 7 || targetState == 7) {
                     EnterTransition.None togetherWith ExitTransition.None
@@ -864,12 +880,12 @@ fun HomeScreen(vm: MainVm) {
                     onOpenLists = { tab = 4 },
                     dailyUs = dailyUs,
                     onOpenDailyUs = { dailyDateKey = todayKey; showDailyUs = true },
-                    pad = pad
+                    pad = screenPad
                 )
-                1 -> CalendarTab(vm, events, pad)
-                2 -> NotesTab(vm, notes, pad)
-                3 -> MemoriesTab(vm, memories, pad)
-                4 -> ListsHubTab(all, vm, pad)
+                1 -> CalendarTab(vm, events, screenPad)
+                2 -> NotesTab(vm, notes, screenPad)
+                3 -> MemoriesTab(vm, memories, screenPad)
+                4 -> ListsHubTab(all, vm, screenPad)
                 7 -> OurMapTab(
                     couple = couple,
                     currentUid = currentUid,
@@ -923,9 +939,24 @@ fun HomeScreen(vm: MainVm) {
                 8 -> OurInstantTab(
                     code = vm.code.value.orEmpty(),
                     uid = currentUid.orEmpty(),
-                    pad = pad
+                    pad = screenPad
                 )
-                else -> SettingsTab(vm, couple, { confirm = true }, pad)
+                9 -> UsChatScreen(
+                    coupleCode = vm.code.value.orEmpty(),
+                    currentUid = currentUid.orEmpty(),
+                    partnerName = partnerName,
+                    modifier = Modifier.padding(screenPad)
+                )
+                else -> SettingsTab(vm, couple, { confirm = true }, screenPad)
+            }
+            }
+            if (!imeVisible) {
+                UsBottomNavigationBar(
+                    tabs = tabs,
+                    selectedTab = tab,
+                    onTabSelected = { tab = it },
+                    modifier = Modifier.align(Alignment.BottomCenter)
+                )
             }
         }
     }
@@ -1021,51 +1052,21 @@ private object HeartNavigationShape : Shape {
     }
 }
 
-private class CenterNotchedPillShape : Shape {
-    override fun createOutline(
-        size: Size,
-        layoutDirection: androidx.compose.ui.unit.LayoutDirection,
-        density: androidx.compose.ui.unit.Density
-    ): Outline {
-        val w = size.width
-        val h = size.height
-        val radius = h * 0.5f
-        val notchHalf = with(density) { 49.dp.toPx() }
-        val notchDepth = with(density) { 19.dp.toPx() }
-        val cx = w * 0.5f
-        val path = Path().apply {
-            moveTo(radius, 0f)
-            lineTo(cx - notchHalf, 0f)
-            cubicTo(cx - notchHalf * 0.52f, 0f, cx - notchHalf * 0.52f, notchDepth, cx, notchDepth)
-            cubicTo(cx + notchHalf * 0.52f, notchDepth, cx + notchHalf * 0.52f, 0f, cx + notchHalf, 0f)
-            lineTo(w - radius, 0f)
-            quadraticTo(w, 0f, w, radius)
-            lineTo(w, h - radius)
-            quadraticTo(w, h, w - radius, h)
-            lineTo(radius, h)
-            quadraticTo(0f, h, 0f, h - radius)
-            lineTo(0f, radius)
-            quadraticTo(0f, 0f, radius, 0f)
-            close()
-        }
-        return Outline.Generic(path)
-    }
-}
-
 @Composable
 private fun UsBottomNavigationBar(
     tabs: List<Triple<String, androidx.compose.ui.graphics.vector.ImageVector, Int>>,
     selectedTab: Int,
-    onTabSelected: (Int) -> Unit
+    onTabSelected: (Int) -> Unit,
+    modifier: Modifier = Modifier
 ) {
     val cs = MaterialTheme.colorScheme
     val leftTabs = tabs.take(2)
     val rightTabs = tabs.drop(2)
 
     Box(
-        modifier = Modifier
+        modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
+            .padding(bottom = 12.dp)
             .height(90.dp)
     ) {
         Row(
@@ -1073,10 +1074,7 @@ private fun UsBottomNavigationBar(
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .padding(horizontal = 14.dp)
-                .height(62.dp)
-                .shadow(4.dp, CenterNotchedPillShape())
-                .clip(CenterNotchedPillShape())
-                .background(cs.surface),
+                .height(62.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(Modifier.weight(1f).fillMaxHeight()) {

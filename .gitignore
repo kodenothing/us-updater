@@ -23,3 +23,10 @@ keystore.properties
 node_modules/
 **/node_modules/
 .kotlin/
+# Firebase Admin service-account credentials (never commit)
+*-firebase-adminsdk-*.json
+*firebase-admin-service-account*.json
+service-account*.json
+
+# Local Supabase project configuration (publishable key only)
+supabase.properties

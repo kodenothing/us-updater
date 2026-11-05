@@ -1,0 +1,16 @@
+{
+  "name": "us-chat-firebase-claim-setup",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Local-only Firebase Admin SDK helper for enabling Supabase Firebase Auth integration",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "dry-run": "node provision-claims.cjs",
+    "apply": "node provision-claims.cjs --apply"
+  },
+  "dependencies": {
+    "firebase-admin": "12.7.0"
+  }
+}
