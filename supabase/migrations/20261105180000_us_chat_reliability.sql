@@ -9,7 +9,7 @@ alter table public.chat_messages
 
 create unique index if not exists chat_messages_client_message_id_unique
     on public.chat_messages (room_id, sender_uid, client_message_id)
-    where client_message_id is not null;
+;
 
 grant insert (client_message_id)
     on public.chat_messages to authenticated;
