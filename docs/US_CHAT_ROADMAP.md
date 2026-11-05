@@ -24,9 +24,9 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 | 1 — Database schema and RLS | Base schema and couple-room roster are set up. | Database setup is complete; unrelated-user, wrong-sender, and cross-room regression tests remain a release-hardening requirement. |
 | 2 — Android Supabase foundation | Completed. | Earlier debug/release build and protected-read setup were completed during development. |
 | 3 — First text-chat UI and send/receive path | Implemented. | A debug build succeeded during development. Keep full two-phone live delivery and security checks as explicit acceptance items. |
-| 4.1 — Realtime foundation | Realtime client/channel integration implemented. | Developer confirmed a successful build after the SDK API correction. Migration application and actual two-phone live delivery are not yet recorded as accepted. |
-| 4.2 — Reliable synchronization | Implementation pushed to `feature/us-chat-2.5.0`. | **Active stage.** No fresh Gradle build or two-phone acceptance has been reported for the current 4.2 implementation. |
-| 4.3 — Offline sending and read receipts | Preliminary code and migration groundwork already exist in the branch. | **Paused. Not accepted.** Do not extend this stage until Stage 4.2 is accepted. |
+| 4.1 — Realtime foundation | Realtime client/channel integration implemented. | Developer confirmed the Realtime publication check is true and both phones exchange messages live. |
+| 4.2 — Reliable synchronization | Synchronization recovery, timeline merge, ordering, and keyset pagination implemented. | Developer confirmed `clean assembleDebug` succeeded and basic two-phone live send/receive works. Extended pagination, reconnect, lifecycle, and RLS stress tests are deferred for later hardening. |
+| 4.3 — Offline sending and read receipts | Durable SQLite outbox, WorkManager sender, local delivery states, manual retry, and stable client-ID send path pushed to the branch. Read receipts are not implemented yet. | **ACTIVE — 4.3.1 implementation pushed; fresh build and offline-device tests are pending.** |
 | 5 — Conversation features | Planned. | Not started. |
 | 6 — Push notifications | Planned. | Not started; trusted sender, secrets, quotas, and free-plan feasibility need review. |
 | 7 — Media and live presence | Planned. | Not started. |
@@ -34,17 +34,18 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 
 ### Exact stopping point — resume here
 
-**The developer stopped at Stage 4.2. Continue Stage 4.2 only. Do not start or extend Stage 4.3 or Stage 5.**
+**Current task: Stage 4.3.1 — validate the durable offline outbox.** The developer accepted moving forward after the 4.2 build and basic two-phone send/receive test. Extended 4.2 pagination, reconnect, lifecycle, and unrelated-user RLS stress checks remain deferred and must be revisited before release.
 
 - Repository: `kodenothing/us-updater`
 - Branch: `feature/us-chat-2.5.0`
 - Pull request: [PR #7](https://github.com/kodenothing/us-updater/pull/7) — keep it draft and unmerged.
-- Last code implementation checkpoint: `53f8900476283e0f0a0729af2602a2a532bcd613`. Later commits on this branch update documentation; pull the branch rather than checking out this older hash.
-- Work already pushed for 4.2 includes message timeline merging, deduplication, deterministic ordering, keyset pagination, Realtime status monitoring, reconnect refresh, and polling recovery.
-- **Not yet verified:** a fresh Gradle build after the 4.2 code changes, pagination behavior, reconnect behavior, and two-phone synchronization.
-- Preliminary 4.3 outbox/read-receipt code and its migration are already present from the earlier combined implementation. They are deliberately paused and must not be treated as complete or as the current task.
+- Latest code checkpoint before this documentation update: `7872c08efa31bb2186a2cbc0fb5d1bf03307a010`. Pull the branch tip; do not check out an older checkpoint.
+- Stage 4.2 includes timeline merging, deduplication, deterministic ordering, keyset pagination, Realtime status monitoring, reconnect refresh, and polling recovery. The developer reports a successful `clean assembleDebug` and working basic live exchange between both phones.
+- The developer chose to defer the longer 4.2 stress checklist rather than block progress. Do not describe pagination, reconnect, lifecycle, or RLS stress tests as passed.
+- Stage 4.3.1 now includes app-private SQLite persistence, network-constrained WorkManager delivery, per-room queued work, bounded exponential retries, stable client UUID reuse, account-UID checks, pending/sent/failed timeline states, and manual retry. A worker success is recorded locally, but its row is retained until a PostgREST page confirms the matching `client_message_id`.
+- **Not yet verified:** the new outbox code has not been built or tested offline/on two phones. Read receipts are not implemented.
 
-**Next action when resuming:** pull the feature branch and run the build. Do not change code or apply another database migration until the build result is reviewed.
+**Next action:** pull the latest branch and run `clean assembleDebug`. Stop and review any compiler output before device testing. No new Supabase migration is required for this outbox substage.
 
 ```powershell
 git fetch origin
@@ -125,13 +126,13 @@ Reference: [US_CHAT_STAGE_3_ANDROID.md](./US_CHAT_STAGE_3_ANDROID.md).
 
 Stage 4 is divided into three controlled checkpoints:
 
-1. **4.1 Realtime foundation:** subscribe to current-room message changes, clean up listeners, and retain a catch-up fallback.
-2. **4.2 Synchronization reliability — active:** authoritative refresh after reconnect, duplicate prevention, stable chronological ordering, and keyset pagination for older history.
-3. **4.3 Offline sending and read receipts — paused:** app-private durable outbox, WorkManager retry, stable client message IDs, idempotent server writes, and per-member read cursors.
+1. **4.1 Realtime foundation — live exchange confirmed:** subscribe to current-room message changes, clean up listeners, and retain a catch-up fallback.
+2. **4.2 Synchronization reliability — build/basic live test passed:** authoritative refresh after reconnect, duplicate prevention, stable chronological ordering, and keyset pagination. Extended stress tests are deferred to release hardening.
+3. **4.3 Offline sending and read receipts — active:** validate the SQLite/WorkManager outbox first, then complete idempotent delivery tests and per-member read cursors.
 
 Detailed tasks, migration order, build commands, and acceptance tests: [US_CHAT_STAGE_4_ROADMAP.md](./US_CHAT_STAGE_4_ROADMAP.md).
 
-**Do not move to Stage 5 until all Stage 4 gates pass on both phones.**
+**Do not move to Stage 5 until the remaining Stage 4.3 gates pass on both phones. The deferred Stage 4.2 stress checks remain part of release hardening.**
 
 ## Stage 5 — Conversation features
 
