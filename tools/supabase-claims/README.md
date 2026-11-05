@@ -50,7 +50,7 @@ Replace the example path and code with your own local values:
 
 ```powershell
 $env:GOOGLE_APPLICATION_CREDENTIALS = "C:\Users\James\Secrets\us-project-f6fc5-admin.json"
-$env:US_COUPLE_CODE = "YOUR12CHARCODE"
+$env:US_COUPLE_CODE = "YOUR8OR12CHARCODE"
 npm run dry-run
 ```
 
