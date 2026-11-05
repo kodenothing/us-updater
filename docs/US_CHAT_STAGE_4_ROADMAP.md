@@ -22,7 +22,7 @@ Make the text conversation dependable before adding reactions, replies, editing,
 - **Repository:** `kodenothing/us-updater`
 - **Branch:** `feature/us-chat-2.5.0`
 - **Pull request:** [PR #7](https://github.com/kodenothing/us-updater/pull/7), keep draft/unmerged.
-- **Latest code checkpoint before the current documentation update:** `5746d56687fda1c4a8fa1fb7f5d34eb2f93dd349`. Pull the latest branch tip; do not check out an older hash.
+- **Latest code checkpoint before the current documentation update:** `2dabae19a0d2a2df94d6c292fef6ef2492d0284f`. Pull the latest branch tip; do not check out an older hash.
 - **Verified by developer:** the current 4.2 branch built successfully with `clean assembleDebug`; both phones exchanged live messages; `has_client_message_id` and `chat_messages_realtime_enabled` checks returned `true`.
 - **Deferred 4.2 checks:** pagination beyond 50 rows, reconnect/missed-event recovery, repeated screen lifecycle, and unrelated-user RLS regression. These are not marked passed and must return to the release-hardening checklist.
 - **Pushed for 4.3.1:** app-private SQLite outbox, network-constrained WorkManager delivery, a per-room serial work chain, five-attempt exponential retry, same client UUID on retries, sender UID guard, pending/sending/sent/failed display, manual retry, and server-confirmed local-row cleanup. The database also caches the room ID against the couple code and Firebase UID, so a previously opened conversation can reopen and queue messages offline after process death. The first room resolution still needs an online lookup.
