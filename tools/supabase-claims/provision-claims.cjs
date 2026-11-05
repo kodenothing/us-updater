@@ -26,8 +26,8 @@ async function main() {
   const coupleCode = readArg("couple-code") || process.env.US_COUPLE_CODE || "";
   const credentialsPath = process.env.GOOGLE_APPLICATION_CREDENTIALS;
 
-  if (!/^[A-HJ-NP-Z2-9]{12}$/.test(coupleCode)) {
-    fail("Set US_COUPLE_CODE or pass --couple-code=YOUR12CHARCODE (12 characters, uppercase).");
+  if (!/^(?:[A-HJ-NP-Z2-9]{8}|[A-HJ-NP-Z2-9]{12})$/.test(coupleCode)) {
+    fail("Set US_COUPLE_CODE or pass --couple-code=YOURCODE (8 or 12 characters, uppercase).");
   }
 
   if (!credentialsPath) {
