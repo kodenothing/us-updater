@@ -117,6 +117,10 @@ internal fun UsChatScreen(
             }
             roomId = localState.first
             outboxMessages = localState.second
+            // Re-enqueue older local messages before the user can add newer ones.
+            localState.second
+                .filter { it.status == UsChatOutboxStatus.PENDING }
+                .forEach { UsChatOutboxScheduler.enqueue(context, it) }
 
             val room = try {
                 UsChatRepository.findRoom(coupleCode)
@@ -129,7 +133,6 @@ internal fun UsChatScreen(
                 // The room was resolved during an earlier online session.
                 // Keep the local conversation usable while WorkManager waits
                 // for connectivity to return.
-                UsChatOutboxScheduler.enqueuePending(context, cachedRoomId, currentUid)
                 error = "Offline. Messages are saved on this device and will send when you reconnect."
                 return@LaunchedEffect
             }
@@ -155,7 +158,6 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.deleteConfirmed(context, room.id, confirmedIds)
                 UsChatOutboxStore.listForRoom(context, room.id, currentUid)
             }
-            UsChatOutboxScheduler.enqueuePending(context, room.id, currentUid)
             hasInitialPage = true
         } catch (cancelled: CancellationException) {
             throw cancelled
