@@ -91,6 +91,7 @@ dependencies {
 
     implementation("com.google.android.gms:play-services-location:21.3.0")
     implementation("org.maplibre.gl:android-sdk:11.11.0")
+    implementation("org.maplibre.gl:android-plugin-annotation-v9:3.0.2")
     implementation("io.coil-kt:coil-compose:2.7.0")
 
     implementation(platform("com.google.firebase:firebase-bom:33.4.0"))
