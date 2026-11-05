@@ -349,7 +349,9 @@ internal class UsChatSendWorker(
                     "Sign in with the account that created this message to send it."
                 )
             }
-            return Result.failure()
+            // A delivery failure is stored in SQLite. Complete this WorkRequest
+            // successfully so later messages in the room chain are not cancelled.
+            return Result.success()
         }
 
         withContext(Dispatchers.IO) {
@@ -386,7 +388,8 @@ internal class UsChatSendWorker(
                 withContext(Dispatchers.IO) {
                     UsChatOutboxStore.markFailed(applicationContext, clientMessageId, reason)
                 }
-                Result.failure()
+                // Permanent item failure must not cancel the next room-queue item.
+                Result.success()
             }
         }
     }
