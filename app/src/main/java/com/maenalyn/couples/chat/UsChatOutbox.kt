@@ -34,13 +34,15 @@ internal data class UsChatOutboxMessage(
         body = body,
         createdAt = createdAt,
         clientMessageId = clientMessageId,
-        isPending = status == STATUS_PENDING,
+        isPending = status != STATUS_FAILED,
+        isAwaitingSync = status == STATUS_SENT,
         sendError = lastError
     )
 
     companion object {
         const val STATUS_PENDING = "pending"
         const val STATUS_FAILED = "failed"
+        const val STATUS_SENT = "sent"
     }
 }
 
@@ -141,7 +143,7 @@ internal object UsChatOutboxStore {
 
     suspend fun markSent(context: Context, clientMessageId: String) = withContext(Dispatchers.IO) {
         val values = ContentValues().apply {
-            put("status", "sent")
+            put("status", UsChatOutboxMessage.STATUS_SENT)
             putNull("last_error")
         }
         database(context).update(
