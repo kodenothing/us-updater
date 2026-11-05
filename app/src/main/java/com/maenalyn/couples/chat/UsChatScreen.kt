@@ -51,7 +51,10 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
+import io.github.jan.supabase.postgrest.query.filter.FilterOperator
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.channel
+import io.github.jan.supabase.realtime.postgresChangeFlow
 import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
@@ -105,7 +108,7 @@ internal fun UsChatScreen(
         val channel = supabase.realtime.channel("us-chat-$activeRoomId")
         val changeFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "chat_messages"
-            filter = "room_id=eq.$activeRoomId"
+            filter("room_id", FilterOperator.EQ, activeRoomId)
         }
 
         var realtimeConnected = false
