@@ -744,6 +744,7 @@ private fun buildChatTimeline(
 private fun ChatMessageBubble(
     message: ChatTimelineItem,
     mine: Boolean,
+    seen: Boolean,
     onRetry: (String) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
@@ -793,6 +794,15 @@ private fun ChatMessageBubble(
                     maxLines = 1,
                     overflow = TextOverflow.Clip
                 )
+                if (seen) {
+                    Text(
+                        " · Seen",
+                        color = colors.primary.copy(alpha = 0.85f),
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Medium,
+                        modifier = Modifier.padding(start = 3.dp)
+                    )
+                }
                 message.deliveryState?.let { state ->
                     Text(
                         " · " + when (state) {
@@ -818,4 +828,17 @@ private fun ChatMessageBubble(
             }
         }
     }
+}
+
+
+private fun compareChatPosition(
+    leftCreatedAt: String,
+    leftId: String,
+    rightCreatedAt: String,
+    rightId: String
+): Int {
+    val timeComparison = runCatching {
+        Instant.parse(leftCreatedAt).compareTo(Instant.parse(rightCreatedAt))
+    }.getOrElse { leftCreatedAt.compareTo(rightCreatedAt) }
+    return if (timeComparison != 0) timeComparison else leftId.compareTo(rightId)
 }
