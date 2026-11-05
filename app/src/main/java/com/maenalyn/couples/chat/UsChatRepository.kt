@@ -5,7 +5,6 @@ import io.github.jan.supabase.postgrest.from
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
-import kotlinx.serialization.Transient
 
 @Serializable
 internal data class UsChatRoom(
@@ -27,25 +26,7 @@ internal data class UsChatMessage(
     @SerialName("created_at")
     val createdAt: String,
     @SerialName("client_message_id")
-    val clientMessageId: String? = null,
-    @Transient
-    val isPending: Boolean = false,
-    @Transient
-    val isAwaitingSync: Boolean = false,
-    @Transient
-    val sendError: String? = null
-)
-
-@Serializable
-internal data class UsChatRoomRead(
-    @SerialName("room_id")
-    val roomId: String,
-    @SerialName("reader_uid")
-    val readerUid: String,
-    @SerialName("last_read_message_id")
-    val lastReadMessageId: String? = null,
-    @SerialName("last_read_at")
-    val lastReadAt: String? = null
+    val clientMessageId: String? = null
 )
 
 internal data class UsChatMessagePage(
@@ -62,22 +43,6 @@ private data class UsChatMessageInsert(
     val body: String,
     @SerialName("client_message_id")
     val clientMessageId: String
-)
-
-@Serializable
-private data class UsChatRoomReadInsert(
-    @SerialName("room_id")
-    val roomId: String,
-    @SerialName("reader_uid")
-    val readerUid: String,
-    @SerialName("last_read_message_id")
-    val lastReadMessageId: String
-)
-
-@Serializable
-private data class UsChatRoomReadUpdate(
-    @SerialName("last_read_message_id")
-    val lastReadMessageId: String
 )
 
 /**
@@ -125,8 +90,7 @@ internal object UsChatRepository {
 
     /**
      * Keyset pagination avoids offset drift when new messages arrive while the
-     * user is browsing older history. The UUID is the deterministic tie-breaker
-     * when multiple messages share the same created_at timestamp.
+     * user is browsing history. UUID is the tie-breaker for equal timestamps.
      */
     suspend fun loadMessagesBefore(
         roomId: String,
@@ -159,8 +123,8 @@ internal object UsChatRepository {
     }
 
     /**
-     * The client-generated UUID is protected by a unique database index. A
-     * retry after a lost HTTP response therefore cannot create a second row.
+     * Idempotent send: retry the same UUID if the HTTP result is ambiguous.
+     * The database unique index prevents a duplicate server row.
      */
     suspend fun sendMessage(
         roomId: String,
@@ -179,22 +143,20 @@ internal object UsChatRepository {
             "Messages must be 4,000 characters or fewer."
         }
 
-        SupabaseChatClientProvider.get()
-            .from("chat_messages")
-            .upsert(
-                UsChatMessageInsert(
-                    roomId = roomId,
-                    senderUid = senderUid,
-                    body = normalizedBody,
-                    clientMessageId = clientMessageId
-                )
-            ) {
-                onConflict = "room_id,sender_uid,client_message_id"
-                ignoreDuplicates = true
-            }
+        val client = SupabaseChatClientProvider.get()
+        client.from("chat_messages").upsert(
+            UsChatMessageInsert(
+                roomId = roomId,
+                senderUid = senderUid,
+                body = normalizedBody,
+                clientMessageId = clientMessageId
+            )
+        ) {
+            onConflict = "room_id,sender_uid,client_message_id"
+            ignoreDuplicates = true
+        }
 
-        val saved = SupabaseChatClientProvider.get()
-            .from("chat_messages")
+        return client.from("chat_messages")
             .select {
                 filter {
                     eq("room_id", roomId)
@@ -205,83 +167,6 @@ internal object UsChatRepository {
             }
             .decodeList<UsChatMessage>()
             .firstOrNull()
-
-        return saved ?: error("The message was queued but its server confirmation is not available yet.")
-    }
-
-    suspend fun loadReadCursor(roomId: String, readerUid: String): UsChatRoomRead? {
-        return SupabaseChatClientProvider.get()
-            .from("chat_room_reads")
-            .select {
-                filter {
-                    eq("room_id", roomId)
-                    eq("reader_uid", readerUid)
-                }
-                limit(1)
-            }
-            .decodeList<UsChatRoomRead>()
-            .firstOrNull()
-    }
-
-    suspend fun loadPartnerReadCursor(roomId: String, currentUid: String): UsChatRoomRead? {
-        return SupabaseChatClientProvider.get()
-            .from("chat_room_reads")
-            .select {
-                filter {
-                    eq("room_id", roomId)
-                    neq("reader_uid", currentUid)
-                }
-                limit(1)
-            }
-            .decodeList<UsChatRoomRead>()
-            .firstOrNull()
-    }
-
-    /**
-     * Advances this member's read cursor. The UPDATE body contains only
-     * last_read_message_id, matching the narrow column grant in the schema.
-     */
-    suspend fun markRead(roomId: String, readerUid: String, messageId: String) {
-        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
-        check(!currentUid.isNullOrBlank() && currentUid == readerUid) {
-            "Your Firebase account changed. Reopen Us Chat and try again."
-        }
-
-        val client = SupabaseChatClientProvider.get()
-        val existing = loadReadCursor(roomId, readerUid)
-        if (existing?.lastReadMessageId == messageId) return
-
-        if (existing == null) {
-            try {
-                client.from("chat_room_reads").insert(
-                    UsChatRoomReadInsert(roomId, readerUid, messageId)
-                )
-            } catch (cancelled: kotlinx.coroutines.CancellationException) {
-                throw cancelled
-            } catch (insertFailure: Exception) {
-                // Another active device may have created this member's cursor
-                // between our SELECT and INSERT. Only treat it as a race if the
-                // row now exists; otherwise preserve the original error.
-                val raced = loadReadCursor(roomId, readerUid)
-                if (raced == null) throw insertFailure
-                client.from("chat_room_reads").update(
-                    UsChatRoomReadUpdate(messageId)
-                ) {
-                    filter {
-                        eq("room_id", roomId)
-                        eq("reader_uid", readerUid)
-                    }
-                }
-            }
-        } else {
-            client.from("chat_room_reads").update(
-                UsChatRoomReadUpdate(messageId)
-            ) {
-                filter {
-                    eq("room_id", roomId)
-                    eq("reader_uid", readerUid)
-                }
-            }
-        }
+            ?: error("The server has not confirmed this message yet. Retry safely.")
     }
 }
