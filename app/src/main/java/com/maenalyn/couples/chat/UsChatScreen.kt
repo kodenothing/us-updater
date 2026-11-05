@@ -52,6 +52,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.CancellationException
 import io.github.jan.supabase.realtime.PostgresAction
+import io.github.jan.supabase.realtime.realtime
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
@@ -101,7 +102,7 @@ internal fun UsChatScreen(
     LaunchedEffect(roomId) {
         val activeRoomId = roomId ?: return@LaunchedEffect
         val supabase = SupabaseChatClientProvider.get()
-        val channel = supabase.channel("us-chat-$activeRoomId")
+        val channel = supabase.realtime.channel("us-chat-$activeRoomId")
         val changeFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "chat_messages"
             filter = "room_id=eq.$activeRoomId"
