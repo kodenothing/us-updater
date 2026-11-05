@@ -39,10 +39,10 @@ Deliver a private, dependable one-to-one conversation for the two members of an 
 - Repository: `kodenothing/us-updater`
 - Branch: `feature/us-chat-2.5.0`
 - Pull request: [PR #7](https://github.com/kodenothing/us-updater/pull/7) — keep it draft and unmerged.
-- Latest code checkpoint before this documentation update: `7872c08efa31bb2186a2cbc0fb5d1bf03307a010`. Pull the branch tip; do not check out an older checkpoint.
+- Latest code checkpoint before this documentation update: `5746d56687fda1c4a8fa1fb7f5d34eb2f93dd349`. Pull the branch tip; do not check out an older checkpoint.
 - Stage 4.2 includes timeline merging, deduplication, deterministic ordering, keyset pagination, Realtime status monitoring, reconnect refresh, and polling recovery. The developer reports a successful `clean assembleDebug` and working basic live exchange between both phones.
 - The developer chose to defer the longer 4.2 stress checklist rather than block progress. Do not describe pagination, reconnect, lifecycle, or RLS stress tests as passed.
-- Stage 4.3.1 now includes app-private SQLite persistence, network-constrained WorkManager delivery, per-room queued work, bounded exponential retries, stable client UUID reuse, account-UID checks, pending/sent/failed timeline states, and manual retry. A worker success is recorded locally, but its row is retained until a PostgREST page confirms the matching `client_message_id`.
+- Stage 4.3.1 now includes app-private SQLite persistence, network-constrained WorkManager delivery, per-room queued work, bounded exponential retries, stable client UUID reuse, account-UID checks, pending/sent/failed timeline states, and manual retry. A worker success is recorded locally, but its row is retained until a PostgREST page confirms the matching `client_message_id`. A per-account couple-code/room-ID cache also lets a previously opened conversation reopen offline and queue messages after process restart; the first room lookup still needs connectivity.
 - **Not yet verified:** the new outbox code has not been built or tested offline/on two phones. Read receipts are not implemented.
 
 **Next action:** pull the latest branch and run `clean assembleDebug`. Stop and review any compiler output before device testing. No new Supabase migration is required for this outbox substage.
