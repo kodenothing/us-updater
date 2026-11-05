@@ -30,6 +30,7 @@ internal object UsChatOutboxStatus {
 internal data class UsChatOutboxEntry(
     val clientMessageId: String,
     val roomId: String,
+    val coupleCode: String?,
     val senderUid: String,
     val body: String,
     val localCreatedAtMs: Long,
@@ -62,11 +63,13 @@ internal object UsChatOutboxStore {
     fun insert(
         context: Context,
         roomId: String,
+        coupleCode: String,
         senderUid: String,
         body: String,
         clientMessageId: String
     ): UsChatOutboxEntry {
         require(roomId.isNotBlank())
+        require(coupleCode.isNotBlank())
         require(senderUid.isNotBlank())
         require(body.isNotBlank() && body.length <= 4000)
         require(clientMessageId.isNotBlank())
@@ -74,6 +77,7 @@ internal object UsChatOutboxStore {
         val values = ContentValues().apply {
             put("client_message_id", clientMessageId)
             put("room_id", roomId)
+            put("couple_code", coupleCode)
             put("sender_uid", senderUid)
             put("body", body)
             put("local_created_at_ms", System.currentTimeMillis())
@@ -123,6 +127,63 @@ internal object UsChatOutboxStore {
             buildList {
                 while (cursor.moveToNext()) add(cursor.toOutboxEntry())
             }
+        }
+
+    fun listForCouple(
+        context: Context,
+        coupleCode: String,
+        senderUid: String
+    ): List<UsChatOutboxEntry> =
+        database(context).query(
+            TABLE,
+            null,
+            "couple_code = ? AND sender_uid = ?",
+            arrayOf(coupleCode, senderUid),
+            null,
+            null,
+            "local_created_at_ms ASC, client_message_id ASC"
+        ).use { cursor ->
+            buildList {
+                while (cursor.moveToNext()) add(cursor.toOutboxEntry())
+            }
+        }
+
+    fun cacheRoomMapping(
+        context: Context,
+        coupleCode: String,
+        senderUid: String,
+        roomId: String
+    ) {
+        val values = ContentValues().apply {
+            put("couple_code", coupleCode)
+            put("sender_uid", senderUid)
+            put("room_id", roomId)
+            put("updated_at_ms", System.currentTimeMillis())
+        }
+        database(context).insertWithOnConflict(
+            "us_chat_room_cache",
+            null,
+            values,
+            SQLiteDatabase.CONFLICT_REPLACE
+        )
+    }
+
+    fun findCachedRoomId(
+        context: Context,
+        coupleCode: String,
+        senderUid: String
+    ): String? =
+        database(context).query(
+            "us_chat_room_cache",
+            arrayOf("room_id"),
+            "couple_code = ? AND sender_uid = ?",
+            arrayOf(coupleCode, senderUid),
+            null,
+            null,
+            null,
+            "1"
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
         }
 
     fun listPending(
@@ -241,6 +302,7 @@ internal object UsChatOutboxStore {
         UsChatOutboxEntry(
             clientMessageId = getString(getColumnIndexOrThrow("client_message_id")),
             roomId = getString(getColumnIndexOrThrow("room_id")),
+            coupleCode = getString(getColumnIndexOrThrow("couple_code")),
             senderUid = getString(getColumnIndexOrThrow("sender_uid")),
             body = getString(getColumnIndexOrThrow("body")),
             localCreatedAtMs = getLong(getColumnIndexOrThrow("local_created_at_ms")),
@@ -256,7 +318,7 @@ private class UsChatOutboxDatabase(context: Context) : SQLiteOpenHelper(
     context,
     "us_chat_outbox.db",
     null,
-    1
+    2
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -264,6 +326,7 @@ private class UsChatOutboxDatabase(context: Context) : SQLiteOpenHelper(
             CREATE TABLE us_chat_outbox (
                 client_message_id TEXT PRIMARY KEY NOT NULL,
                 room_id TEXT NOT NULL,
+                couple_code TEXT NOT NULL,
                 sender_uid TEXT NOT NULL,
                 body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 4000),
                 local_created_at_ms INTEGER NOT NULL,
@@ -279,9 +342,37 @@ private class UsChatOutboxDatabase(context: Context) : SQLiteOpenHelper(
             "CREATE INDEX us_chat_outbox_room_sender_order " +
                 "ON us_chat_outbox(room_id, sender_uid, local_created_at_ms)"
         )
+        db.execSQL(
+            "CREATE INDEX us_chat_outbox_couple_sender_order " +
+                "ON us_chat_outbox(couple_code, sender_uid, local_created_at_ms)"
+        )
+        createRoomCacheTable(db)
     }
 
-    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) = Unit
+    override fun onUpgrade(db: SQLiteDatabase, oldVersion: Int, newVersion: Int) {
+        if (oldVersion < 2) {
+            db.execSQL("ALTER TABLE us_chat_outbox ADD COLUMN couple_code TEXT")
+            db.execSQL(
+                "CREATE INDEX IF NOT EXISTS us_chat_outbox_couple_sender_order " +
+                    "ON us_chat_outbox(couple_code, sender_uid, local_created_at_ms)"
+            )
+            createRoomCacheTable(db)
+        }
+    }
+
+    private fun createRoomCacheTable(db: SQLiteDatabase) {
+        db.execSQL(
+            """
+            CREATE TABLE IF NOT EXISTS us_chat_room_cache (
+                couple_code TEXT NOT NULL,
+                sender_uid TEXT NOT NULL,
+                room_id TEXT NOT NULL,
+                updated_at_ms INTEGER NOT NULL,
+                PRIMARY KEY (couple_code, sender_uid)
+            )
+            """.trimIndent()
+        )
+    }
 }
 
 internal object UsChatOutboxScheduler {
