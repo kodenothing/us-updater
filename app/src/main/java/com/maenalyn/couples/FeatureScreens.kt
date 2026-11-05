@@ -51,7 +51,7 @@ import androidx.compose.material.icons.filled.Event
 import androidx.compose.material.icons.filled.FavoriteBorder
 import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Schedule
-import androidx.compose.material.icons.filled.Send
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Star
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.filled.Download
@@ -327,7 +327,7 @@ private fun CalendarEventEditor(
                         value = when (reminder) { 0 -> "No reminder"; 10 -> "10 minutes before"; 60 -> "1 hour before"; 1440 -> "1 day before"; else -> "No reminder" },
                         onValueChange = {}, readOnly = true, label = { Text("Reminder") },
                         trailingIcon = { ExposedDropdownMenuDefaults.TrailingIcon(expanded = expandedReminder) },
-                        modifier = Modifier.menuAnchor().fillMaxWidth()
+                        modifier = Modifier.menuAnchor(ExposedDropdownMenuAnchorType.PrimaryNotEditable, enabled = true).fillMaxWidth()
                     )
                     ExposedDropdownMenu(expanded = expandedReminder, onDismissRequest = { expandedReminder = false }) {
                         listOf(0 to "No reminder", 10 to "10 minutes before", 60 to "1 hour before", 1440 to "1 day before").forEach { (value, label) ->
@@ -407,7 +407,7 @@ fun NotesTab(vm: MainVm, notes: List<LoveNote>, pad: PaddingValues) {
                 }
             },
             confirmButton = { TextButton(onClick = { vm.addNote(title, text); showEditor = false }, enabled = text.isNotBlank()) {
-                Icon(Icons.Filled.Send, null); Spacer(Modifier.width(5.dp)); Text("Save note")
+                Icon(Icons.AutoMirrored.Filled.Send, null); Spacer(Modifier.width(5.dp)); Text("Save note")
             } },
             dismissButton = { TextButton(onClick = { showEditor = false }) { Text("Cancel") } }
         )
