@@ -6,41 +6,33 @@ This document is the detailed execution checklist for Stage 4 of Us Chat. The ma
 
 Make the text conversation dependable before adding reactions, replies, editing, attachments, or notifications. Stage 4 focuses on message ordering, missed-event recovery, safe retries, offline sending, and read state.
 
-**Execution rule:** complete and verify one substage at a time. The current active scope is **Stage 4.2 only**. Do not begin more 4.3 work until 4.2 passes its build and two-phone acceptance tests.
+**Execution rule:** complete and verify one substage at a time. Stage 4.2's build and basic two-phone send/receive test passed, and the developer explicitly authorized moving forward. The extended 4.2 stress checklist is deferred to release hardening. The current active scope is **Stage 4.3.1**.
 
 ## Current status and exact stopping point (2026-11-05)
 
 | Substage | Scope | Implementation status | Verification status |
 |---|---|---|---|
-| 4.1 | Supabase Realtime subscription and cleanup | Implemented in the branch. | Developer confirmed a successful debug build after the Supabase Kotlin SDK API correction. Migration application and actual two-phone live-event delivery are not recorded as accepted. |
-| 4.2 | Synchronization recovery, deduplication, ordering, and pagination | Code pushed to the feature branch. | **ACTIVE — developer stopped here.** No fresh Gradle build or two-phone tests have been reported for this implementation. |
-| 4.3 | Durable offline outbox, idempotent retries, and read receipts | Preliminary code and migration already exist in the branch. | **PAUSED — not accepted.** Do not add more 4.3 work until 4.2 passes. |
+| 4.1 | Supabase Realtime subscription and cleanup | Implemented in the branch. | Developer confirmed the Realtime publication flag is enabled and both phones exchange messages live. |
+| 4.2 | Synchronization recovery, deduplication, ordering, and pagination | Implemented in the feature branch. | Developer confirmed `clean assembleDebug` succeeded and basic two-phone live send/receive works. Extended pagination, reconnect, lifecycle, and RLS stress checks are deferred. |
+| 4.3 | Durable offline outbox, idempotent retries, and read receipts | 4.3.1 SQLite/WorkManager outbox and UI are pushed. Existing idempotent server-write path is reused. Read receipts are not implemented. | **ACTIVE — 4.3.1 awaits a fresh build and offline/device acceptance tests.** |
 
-### Resume checkpoint
+### Current checkpoint — resume here
 
-- **Current task:** Stage 4.2 only.
+- **Current task:** Stage 4.3.1 — durable SQLite outbox and WorkManager sender.
 - **Repository:** `kodenothing/us-updater`
 - **Branch:** `feature/us-chat-2.5.0`
 - **Pull request:** [PR #7](https://github.com/kodenothing/us-updater/pull/7), keep draft/unmerged.
-- **Last code implementation checkpoint:** `53f8900476283e0f0a0729af2602a2a532bcd613`. Documentation commits were made after this code checkpoint, so pull the latest branch tip.
-- **What is already in the 4.2 implementation:** merge latest server pages into the loaded timeline, deduplicate by message/client ID, sort consistently by `created_at` and ID, load older messages by a `created_at` + ID cursor, watch Realtime channel status, refresh after reconnect, and retain polling recovery.
-- **What has not been confirmed:** current 4.2 code compiles, pagination has no gaps, reconnect catches missed events, both phones see consistent ordering, and screen lifecycle does not create duplicate collectors.
+- **Latest code checkpoint before the current documentation update:** `7872c08efa31bb2186a2cbc0fb5d1bf03307a010`. Pull the latest branch tip; do not check out an older hash.
+- **Verified by developer:** the current 4.2 branch built successfully with `clean assembleDebug`; both phones exchanged live messages; `has_client_message_id` and `chat_messages_realtime_enabled` checks returned `true`.
+- **Deferred 4.2 checks:** pagination beyond 50 rows, reconnect/missed-event recovery, repeated screen lifecycle, and unrelated-user RLS regression. These are not marked passed and must return to the release-hardening checklist.
+- **Pushed for 4.3.1:** app-private SQLite outbox, network-constrained WorkManager delivery, a per-room serial work chain, five-attempt exponential retry, same client UUID on retries, sender UID guard, pending/sending/sent/failed display, manual retry, and server-confirmed local-row cleanup.
+- **Not yet verified:** 4.3.1 has not had a fresh Gradle build or offline/process-death/two-phone test. Read receipts are not implemented.
 
-**Next action — pull and build, then stop for the developer's result:**
+**Next action:** pull the latest feature branch and run `clean assembleDebug`. Review compiler output before testing offline behavior.
 
-```powershell
-git fetch origin
-git pull --ff-only origin feature/us-chat-2.5.0
-.\gradlew.bat clean assembleDebug
-```
+No new Supabase migration is required for 4.3.1; it reuses the existing `client_message_id` column and uniqueness support.
 
-Do not start Stage 4.3, modify unrelated files, or apply a new migration as part of the next step. Review the actual build output first.
-
-### Work deliberately left paused
-
-Stage 4.3 code for the SQLite outbox, WorkManager sender, client message UUID, idempotent database migration, and read-cursor UI was pushed during earlier combined work. This is groundwork only. It has not been accepted, and it is outside the current task. Keep it untouched while completing Stage 4.2.
-
-A successful build of 4.1 does not prove the newer 4.2 implementation builds. A successful build also does not prove Realtime or synchronization works on both phones.
+A successful build is not a substitute for offline, process-death, account-switch, and two-phone acceptance tests.
 
 ---
 
@@ -73,7 +65,7 @@ It adds `public.chat_messages` to the existing `supabase_realtime` publication. 
 
 ---
 
-## Stage 4.2 — Reliable synchronization (active)
+## Stage 4.2 — Reliable synchronization (accepted to proceed; stress checks deferred)
 
 ### 4.2.1 Authoritative message synchronization
 
@@ -122,7 +114,7 @@ Migration:
 
 `supabase/migrations/20261105180000_us_chat_reliability.sql`
 
-This migration adds nullable `client_message_id`, a uniqueness constraint for idempotent sends, the narrow insert grant for that field, and publication of the existing `chat_room_reads` table. Apply it through Supabase SQL Editor before testing code that depends on it. Do not rerun a migration that has already succeeded.
+This migration adds nullable `client_message_id`, the unique index used by idempotent sends, and the narrow insert grant for that field. It does **not** add `chat_room_reads` to the Realtime publication; read-receipt Realtime setup is a separate 4.3.3 task. The developer's `has_client_message_id` diagnostic returned `true`; verify the unique index and grant before release. Do not rerun a migration that has already succeeded.
 
 ### Stage 4.2 build gate
 
@@ -144,15 +136,17 @@ This migration adds nullable `client_message_id`, a uniqueness constraint for id
 - [ ] Confirm existing pairing, Memories, Our Instant, Maps, location sharing, and settings still work.
 - [ ] Confirm RLS still blocks unrelated users.
 
-**Stage 4.2 exit gate:** all build and two-phone checks above pass. Do not start additional Stage 4.3 implementation until this gate is accepted.
+**Stage 4.2 progression decision (2026-11-05):** the developer confirmed the new branch build succeeded and the basic two-phone send/receive path works, then explicitly authorized moving to Stage 4.3. The longer pagination, reconnect, lifecycle, and RLS checks above remain deferred; do not claim they passed. Revisit them during release hardening.
 
 ---
 
-## Stage 4.3 — Offline sending and read receipts (paused)
+## Stage 4.3 — Offline sending and read receipts (active)
 
-Some preliminary implementation is already present on the feature branch. It is intentionally not considered complete until reviewed, built, and tested after Stage 4.2.
+The developer has authorized Stage 4.3 after the 4.2 build and basic live two-phone check. Implement and accept 4.3.1 first, then validate idempotent delivery, and only then add read receipts. No 4.3 substage is complete until its build and acceptance tests pass.
 
 ### 4.3.1 Durable local outbox
+
+**Implementation pushed; fresh build and device tests pending.** The branch now contains `UsChatOutbox.kt` and the Chat screen integration. It persists the body and client-generated UUID in app-private SQLite before scheduling network delivery.
 
 - Persist the message body and its client-generated UUID in app-private SQLite before scheduling network delivery.
 - Store only the opaque message UUID in WorkManager input data; do not place message text, Firebase tokens, or Supabase credentials in Work Data.
@@ -166,6 +160,8 @@ Some preliminary implementation is already present on the feature branch. It is 
 
 ### 4.3.2 Idempotent delivery
 
+**Implementation groundwork exists; acceptance tests pending.** `UsChatRepository.sendMessage` uses the room/sender/client-ID conflict key and reads the matching server row back. The new worker reuses the stored UUID for every retry.
+
 - Reuse the same client message UUID across WorkManager retries and manual retries.
 - Verify the server-side unique key prevents duplicate rows if the server accepted a message but the client lost the HTTP response.
 - Confirm successful sends against the authoritative database row.
@@ -174,7 +170,10 @@ Some preliminary implementation is already present on the feature branch. It is 
 
 ### 4.3.3 Read receipts
 
+**Not started.** The table and RLS policies exist from Stage 1, but Android read-cursor read/write behavior and Realtime publication for `chat_room_reads` have not been added.
+
 - Use the existing `chat_room_reads` table: one cursor per room member, not one update per old message.
+- Add a new idempotent SQL migration to publish `public.chat_room_reads` to `supabase_realtime`, after checking the publication's current tables. Do not edit or rerun the already-applied message Realtime migration.
 - A user may write only their own cursor; existing RLS and narrow column grants remain the security boundary.
 - Advance the cursor only to a server-confirmed message.
 - Load the partner's cursor and show **Seen** only for the latest applicable message sent by the current user.
@@ -194,7 +193,7 @@ Some preliminary implementation is already present on the feature branch. It is 
 - [ ] Confirm both members can read the room cursor but cannot update the other member's cursor.
 - [ ] Recheck RLS with an unrelated Firebase account.
 
-**Stage 4.3 exit gate:** offline, retry, idempotency, read-cursor, and two-phone tests pass. The developer explicitly accepts the stage.
+**Stage 4.3 exit gate:** offline, retry, idempotency, account-switch, read-cursor, Realtime, RLS, and two-phone tests pass. The developer explicitly accepts the stage. Before that, keep Stage 5 paused.
 
 ---
 
