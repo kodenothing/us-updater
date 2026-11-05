@@ -27,3 +27,6 @@ node_modules/
 *-firebase-adminsdk-*.json
 *firebase-admin-service-account*.json
 service-account*.json
+
+# Local Supabase project configuration (publishable key only)
+supabase.properties
