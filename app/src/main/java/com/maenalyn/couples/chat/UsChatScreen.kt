@@ -47,6 +47,9 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import android.content.Context
+import android.net.ConnectivityManager
+import android.net.NetworkCapabilities
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import io.github.jan.supabase.realtime.Realtime
@@ -128,7 +131,7 @@ internal fun UsChatScreen(
                 throw cancelled
             } catch (failure: Exception) {
                 val cachedRoomId = localState.first
-                if (cachedRoomId == null) throw failure
+                if (cachedRoomId == null || context.hasValidatedInternet()) throw failure
 
                 // The room was resolved during an earlier online session.
                 // Keep the local conversation usable while WorkManager waits
@@ -162,7 +165,12 @@ internal fun UsChatScreen(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            error = failure.message ?: "Couldn't connect to Us Chat."
+            if (!context.hasValidatedInternet() && roomId != null) {
+                realtimeLabel = "Offline · messages will send when connected"
+                error = null
+            } else {
+                error = failure.message ?: "Couldn't connect to Us Chat."
+            }
         } finally {
             loading = false
         }
@@ -214,7 +222,12 @@ internal fun UsChatScreen(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    error = failure.message ?: "A new message arrived, but the chat couldn't refresh."
+                    if (!context.hasValidatedInternet()) {
+                        realtimeLabel = "Offline · messages will send when connected"
+                        error = null
+                    } else {
+                        error = failure.message ?: "A new message arrived, but the chat couldn't refresh."
+                    }
                 }
             }
         }
@@ -238,7 +251,12 @@ internal fun UsChatScreen(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
-                        error = failure.message ?: "Chat reconnected, but messages couldn't refresh."
+                        if (!context.hasValidatedInternet()) {
+                            realtimeLabel = "Offline · messages will send when connected"
+                            error = null
+                        } else {
+                            error = failure.message ?: "Chat reconnected, but messages couldn't refresh."
+                        }
                     }
                 }
             }
@@ -263,8 +281,13 @@ internal fun UsChatScreen(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    error = failure.message ?: "Couldn't refresh messages. Check your connection."
-                    realtimeLabel = "Offline · retrying"
+                    if (!context.hasValidatedInternet()) {
+                        realtimeLabel = "Offline · messages will send when connected"
+                        error = null
+                    } else {
+                        error = failure.message ?: "Couldn't refresh messages. Check your connection."
+                        realtimeLabel = "Sync issue · retrying"
+                    }
                 }
             }
         } finally {
@@ -306,7 +329,11 @@ internal fun UsChatScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = failure.message ?: "Couldn't load older messages."
+                error = if (context.hasValidatedInternet()) {
+                    failure.message ?: "Couldn't load older messages."
+                } else {
+                    "Connect to the internet to load older messages."
+                }
             } finally {
                 loadingOlder = false
             }
@@ -557,6 +584,18 @@ internal fun UsChatScreen(
             }
         }
     }
+}
+
+
+private fun Context.hasValidatedInternet(): Boolean {
+    val connectivityManager =
+        getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+            ?: return false
+    val network = connectivityManager.activeNetwork ?: return false
+    val capabilities = connectivityManager.getNetworkCapabilities(network) ?: return false
+
+    return capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET) &&
+        capabilities.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED)
 }
 
 private fun mergeChatTimeline(
