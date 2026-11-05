@@ -247,6 +247,29 @@ internal fun UsChatScreen(
             }
         }
 
+        val readInsertCollector = launch {
+            readInsertFlow.collect {
+                try {
+                    readStates = UsChatRepository.loadReadStates(activeRoomId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Realtime is a signal; periodic sync will recover read state.
+                }
+            }
+        }
+        val readUpdateCollector = launch {
+            readUpdateFlow.collect {
+                try {
+                    readStates = UsChatRepository.loadReadStates(activeRoomId)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Realtime is a signal; periodic sync will recover read state.
+                }
+            }
+        }
+
         val connectionCollector = launch {
             combine(supabase.realtime.status, channel.status) { socketStatus, channelStatus ->
                 socketStatus == Realtime.Status.CONNECTED &&
@@ -307,6 +330,8 @@ internal fun UsChatScreen(
             }
         } finally {
             messageCollector.cancel()
+            readInsertCollector.cancel()
+            readUpdateCollector.cancel()
             connectionCollector.cancel()
             runCatching { supabase.realtime.removeChannel(channel) }
         }
