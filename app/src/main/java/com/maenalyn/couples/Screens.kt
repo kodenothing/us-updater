@@ -765,6 +765,7 @@ fun HomeScreen(vm: MainVm) {
     LaunchedEffect(dailyDateKey) { vm.watchDailyUs(dailyDateKey) }
     val snack = remember { SnackbarHostState() }
     val cs = MaterialTheme.colorScheme
+    val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
     LaunchedEffect(msg) { msg?.let { snack.showSnackbar(it); vm.message.value = null } }
 
     val tabs = listOf(
@@ -838,11 +839,13 @@ fun HomeScreen(vm: MainVm) {
             )
         },
         bottomBar = {
-            UsBottomNavigationBar(
-                tabs = tabs,
-                selectedTab = tab,
-                onTabSelected = { tab = it }
-            )
+            if (!imeVisible) {
+                UsBottomNavigationBar(
+                    tabs = tabs,
+                    selectedTab = tab,
+                    onTabSelected = { tab = it }
+                )
+            }
         }
     ) { pad ->
         AnimatedContent(
@@ -1082,7 +1085,7 @@ private fun UsBottomNavigationBar(
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .navigationBarsPadding()
+            .padding(bottom = 12.dp)
             .height(90.dp)
     ) {
         Row(
@@ -1092,8 +1095,7 @@ private fun UsBottomNavigationBar(
                 .padding(horizontal = 14.dp)
                 .height(62.dp)
                 .shadow(4.dp, CenterNotchedPillShape())
-                .clip(CenterNotchedPillShape())
-                .background(cs.surface),
+                .clip(CenterNotchedPillShape()),
             verticalAlignment = Alignment.CenterVertically
         ) {
             Row(Modifier.weight(1f).fillMaxHeight()) {
