@@ -281,6 +281,7 @@ internal fun UsChatScreen(
         scope.launch {
             sending = true
             error = null
+            var savedLocally = false
             try {
                 val queued = withContext(Dispatchers.IO) {
                     UsChatOutboxStore.insert(
@@ -292,6 +293,7 @@ internal fun UsChatScreen(
                     )
                 }
                 draft = ""
+                savedLocally = true
                 outboxMessages = withContext(Dispatchers.IO) {
                     UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
                 }
@@ -299,8 +301,11 @@ internal fun UsChatScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = failure.message
-                    ?: "The message could not be queued on this device. Your draft is still here."
+                error = failure.message ?: if (savedLocally) {
+                    "Message saved on this device, but delivery could not be scheduled. Tap Retry."
+                } else {
+                    "Message could not be saved locally. Your draft is still here."
+                }
             } finally {
                 sending = false
             }
