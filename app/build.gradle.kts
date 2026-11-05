@@ -5,6 +5,7 @@ plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
+    id("org.jetbrains.kotlin.plugin.serialization")
     id("com.google.gms.google-services")
 }
 
@@ -12,6 +13,15 @@ val keystoreProps = Properties().apply {
     val f = rootProject.file("keystore.properties")
     if (f.exists()) FileInputStream(f).use { load(it) }
 }
+
+val supabaseProps = Properties().apply {
+    val f = rootProject.file("supabase.properties")
+    if (f.exists()) FileInputStream(f).use { load(it) }
+}
+val supabaseUrl = supabaseProps.getProperty("SUPABASE_URL", "").trim()
+val supabasePublishableKey = supabaseProps.getProperty("SUPABASE_PUBLISHABLE_KEY", "").trim()
+fun buildConfigString(value: String): String =
+    "\"" + value.replace("\\", "\\\\").replace("\"", "\\\"") + "\""
 
 android {
     namespace = "com.maenalyn.couples"
@@ -23,6 +33,8 @@ android {
         targetSdk = 34
         versionCode = 22
         versionName = "2.4.9"
+        buildConfigField("String", "SUPABASE_URL", buildConfigString(supabaseUrl))
+        buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", buildConfigString(supabasePublishableKey))
     }
 
     signingConfigs {
@@ -50,6 +62,7 @@ android {
     kotlinOptions { jvmTarget = "17" }
     buildFeatures {
         compose = true
+        buildConfig = true
     }
 }
 
@@ -87,6 +100,13 @@ dependencies {
     implementation("com.google.firebase:firebase-appcheck-playintegrity")
     debugImplementation("com.google.firebase:firebase-appcheck-debug")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1")
+
+    // Supabase Kotlin 3.1.4 supports the existing Kotlin 2.1 toolchain.
+    // Ktor OkHttp supports WebSockets, which Supabase Realtime requires.
+    implementation(platform("io.github.jan-tennert.supabase:bom:3.1.4"))
+    implementation("io.github.jan-tennert.supabase:postgrest-kt")
+    implementation("io.github.jan-tennert.supabase:realtime-kt")
+    implementation("io.ktor:ktor-client-okhttp:3.1.1")
 
     implementation("com.journeyapps:zxing-android-embedded:4.3.0")
     implementation("com.google.zxing:core:3.5.3")
