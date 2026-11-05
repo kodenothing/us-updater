@@ -102,7 +102,7 @@ internal fun UsChatScreen(
         }
     }
 
-    LaunchedEffect(messages.size) {
+    LaunchedEffect(messages.lastOrNull()?.id) {
         if (messages.isNotEmpty()) {
             listState.animateScrollToItem(messages.lastIndex)
         }
@@ -193,7 +193,7 @@ internal fun UsChatScreen(
 
         when {
             loading && messages.isEmpty() -> {
-                Box(Modifier.fillMaxSize().weight(1f), contentAlignment = Alignment.Center) {
+                Box(Modifier.fillMaxWidth().weight(1f), contentAlignment = Alignment.Center) {
                     Column(horizontalAlignment = Alignment.CenterHorizontally) {
                         CircularProgressIndicator(modifier = Modifier.size(30.dp), strokeWidth = 2.dp)
                         Spacer(Modifier.height(12.dp))
@@ -236,7 +236,7 @@ internal fun UsChatScreen(
             else -> {
                 LazyColumn(
                     state = listState,
-                    modifier = Modifier.fillMaxSize().weight(1f),
+                    modifier = Modifier.fillMaxWidth().weight(1f),
                     contentPadding = androidx.compose.foundation.layout.PaddingValues(horizontal = 14.dp, vertical = 12.dp),
                     verticalArrangement = Arrangement.spacedBy(9.dp)
                 ) {
