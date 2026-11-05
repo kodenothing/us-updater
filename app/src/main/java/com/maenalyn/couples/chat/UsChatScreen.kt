@@ -525,7 +525,6 @@ private fun mergeChatTimeline(
         }
 }
 
-@Composable
 private data class ChatTimelineItem(
     val id: String,
     val senderUid: String,
@@ -575,6 +574,7 @@ private fun buildChatTimeline(
     }
 }
 
+@Composable
 private fun ChatMessageBubble(
     message: ChatTimelineItem,
     mine: Boolean,
