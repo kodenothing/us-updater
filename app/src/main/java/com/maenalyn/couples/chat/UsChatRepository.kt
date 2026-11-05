@@ -31,6 +31,8 @@ internal data class UsChatMessage(
     @Transient
     val isPending: Boolean = false,
     @Transient
+    val isAwaitingSync: Boolean = false,
+    @Transient
     val sendError: String? = null
 )
 
@@ -254,6 +256,8 @@ internal object UsChatRepository {
                 client.from("chat_room_reads").insert(
                     UsChatRoomReadInsert(roomId, readerUid, messageId)
                 )
+            } catch (cancelled: kotlinx.coroutines.CancellationException) {
+                throw cancelled
             } catch (insertFailure: Exception) {
                 // Another active device may have created this member's cursor
                 // between our SELECT and INSERT. Only treat it as a race if the
