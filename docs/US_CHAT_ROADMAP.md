@@ -1,157 +1,243 @@
-# Us Chat — v2.5.0 Development Roadmap
+# Us Chat — v2.5.0 and Beyond Roadmap
 
-## Project goals
+This is the **master roadmap** for the Us Chat feature. The detailed reliability implementation and acceptance criteria are in [US_CHAT_STAGE_4_ROADMAP.md](./US_CHAT_STAGE_4_ROADMAP.md). Stage-specific setup and implementation notes remain in the Stage 0–3 documents alongside this file.
 
-Build a private, real-time, one-to-one messaging feature for the two members of an existing UsApp couple.
+## Product objective
 
-- Keep Firebase as the source of truth for existing pairing, account identity, Memories, Our Instant, Maps, calendar, notes, and lists.
-- Use Supabase PostgreSQL and Realtime for chat data and live message delivery.
-- Stay on Supabase Free and Firebase Spark. Do not introduce paid services, Cloud Functions, Cloud Run, or a billing-plan upgrade.
-- Preserve the current app architecture, navigation style, theme support, and current production features.
-- Implement and validate one milestone at a time. Do not begin the next milestone until the current one builds and passes the agreed tests.
+Deliver a private, dependable one-to-one conversation for the two members of an existing UsApp couple, then expand it into a richer shared communication space without disrupting the existing app.
 
-## Authentication and security decision
+### Architecture decisions to preserve
 
-Preferred integration: Supabase's official Firebase Auth third-party integration. The Android client supplies the current Firebase ID token to the Supabase Kotlin client. For RLS, identify the Firebase user through the JWT `sub` claim as text (`auth.jwt()->>'sub'`). Do not use `auth.uid()` for these Firebase UIDs: Supabase casts `auth.uid()`'s `sub` to UUID, while Firebase UIDs are opaque strings.
+- **Firebase remains the identity and couple source of truth.** Continue using the existing Firebase Auth accounts and existing couple pairing.
+- **Supabase PostgreSQL is the chat data store.** Supabase Realtime is the live change signal; PostgREST reads remain authoritative.
+- Keep all database access protected by RLS. Never trust a client-supplied sender UID, room ID, or read cursor without server-side policy checks.
+- Keep service-role keys, Firebase Admin credentials, and FCM server credentials out of the APK and repository.
+- Keep Firebase features—Memories, Our Instant, Maps, location sharing, and existing app navigation—working as they do now.
+- Target Supabase Free and Firebase Spark-compatible approaches unless a feature is shown to be impossible within the available limits. Verify current quotas and pricing before choosing any new backend service.
+- Implement in small stages. Each stage must pass a build and its acceptance tests before the next stage is treated as complete.
 
-Important prerequisite: Firebase ID tokens do not contain Supabase's required `role: authenticated` claim by default. Supabase documents that this claim must be added using a privileged Firebase Admin SDK environment. Do not attempt to set custom claims inside the Android app, and never put a service-account key in the repository or APK.
+## Current development status — 2026-11-05
 
-For the existing two Firebase accounts, the planned Spark-compatible setup is a one-time local Admin SDK script run by the project owner on their own computer. No deployed Firebase Cloud Function is planned. If either Firebase UID changes in the future, its claim must be provisioned again through the same trusted local process. Do not silently replace this identity model with client-supplied UIDs or unverified Supabase anonymous identities.
+| Stage | Status |
+|---|---|
+| 0 — Project and identity readiness | Completed according to the developer's setup confirmation. |
+| 1 — Database schema and RLS | Base schema and room roster setup completed. Security regression tests remain part of release hardening. |
+| 2 — Android Supabase foundation | Integrated; earlier Android build and protected-read setup completed. |
+| 3 — First text-chat UI and send/receive path | Implemented; a debug build was confirmed successful during development. Keep the full two-phone acceptance checklist as the release record. |
+| 4.1 — Realtime foundation | SDK integration correction is in; developer confirmed the subsequent build succeeded. Database migration and two-device live delivery still require explicit acceptance. |
+| 4.2 — Reliable synchronization | Code has been pushed to `feature/us-chat-2.5.0`. A fresh build and two-phone test are still pending. **Current active stage.** |
+| 4.3 — Offline sending and read receipts | Initial code and migration groundwork exist in the branch, but this is paused and not accepted. Start/finish it only after 4.2 is approved. |
+| 5 — Conversation features | Planned. |
+| 6 — Push notifications | Planned; backend, secrets, quota, and free-plan feasibility must be reviewed first. |
+| 7 — Media and live presence | Planned; do only after text, sync, and notifications are reliable. |
+| 8 — Security, performance, and release hardening | Planned; required before production release. |
 
-Before coding against the live project, verify the exact Firebase project ID, the two current Firebase UIDs, Supabase's third-party Firebase integration, token claims, and RLS behavior. If secure claim provisioning cannot be completed, stop and reassess the architecture before adding chat UI or data writes.
+**Status language:** “implemented” means code exists; “build passed” means the developer actually ran the build successfully; “accepted” means the agreed device/security tests also passed. Do not treat these as interchangeable.
 
-## Milestones
+---
 
-### Stage 0 — Account and project readiness (no app code)
+## Stage 0 — Account and project readiness
 
-1. Create the Supabase project on the Free plan.
-2. Enable the official Firebase Auth third-party integration for the correct Firebase project.
-3. Confirm the two existing Firebase UIDs and arrange local Admin SDK access without sharing or committing credentials.
-4. Add the required `role: authenticated` claim to those two existing accounts using a local-only Admin SDK script.
-5. Force-refresh each Firebase ID token and verify the token claims.
-6. Test Supabase access from a temporary client for both users.
-7. Verify an unrelated Firebase account is rejected by RLS.
+**Goal:** establish the trusted Firebase-to-Supabase identity path without adding app code.
 
-**Exit gate:** both intended users authenticate through Firebase tokens; an unrelated account cannot access private chat data; no paid Firebase plan or deployed server is required.
+- [x] Create the Supabase project on the Free plan and select the intended Singapore region (developer-confirmed).
+- [x] Configure Supabase's Firebase third-party authentication integration (developer-confirmed).
+- [x] Provision the required Firebase JWT `role: authenticated` custom claim for the two existing accounts through the local trusted Admin SDK workflow (developer-confirmed).
+- [x] Confirm the Supabase project configuration and local-only credential handling.
+- [x] Keep service-account credentials and database secrets out of GitHub and the Android client.
 
-### Stage 1 — Database schema and Row Level Security (Supabase only)
+Reference: [US_CHAT_STAGE_0_SETUP.md](./US_CHAT_STAGE_0_SETUP.md).
 
-Implementation files on `feature/us-chat-2.5.0`:
+## Stage 1 — Database schema and Row Level Security
 
-- Migration: `supabase/migrations/20261105090000_us_chat_schema.sql`
-- Setup and verification steps: `docs/US_CHAT_STAGE_1_DATABASE.md`
+**Goal:** create the private chat data model and enforce the two-member boundary in PostgreSQL.
 
+- [x] Create `chat_rooms`, `chat_room_members`, `chat_messages`, and `chat_room_reads`.
+- [x] Use Firebase UID values as text, not Supabase UUID identity assumptions.
+- [x] Enforce the expected Firebase issuer, audience, authenticated role, and current Firebase UID.
+- [x] Restrict room/member/message/read visibility to the two registered room members.
+- [x] Allow a member to insert messages only as their own Firebase UID.
+- [x] Keep room and roster creation privileged; Android cannot add arbitrary members.
+- [ ] Retain unrelated-user, wrong-sender, and cross-room RLS regression tests as mandatory checks before release.
 
-Create and review SQL migrations for:
+Reference: [US_CHAT_STAGE_1_DATABASE.md](./US_CHAT_STAGE_1_DATABASE.md).
 
-- `chat_rooms`: one room per existing couple, with the Firebase couple identifier and creation metadata.
-- `chat_room_members`: room membership keyed to Firebase UIDs.
-- `chat_messages`: message ID, room ID, sender UID, message type, text, creation timestamp, optional reply reference, and edit/deletion metadata reserved for later use.
-- `chat_message_reads` or an equivalent per-user read cursor for read state.
+## Stage 2 — Android Supabase foundation
 
-Security requirements:
+**Goal:** use the existing Firebase identity in the Android app without changing sign-in or pairing.
 
-- Enable RLS on every exposed table.
-- Only the two Firebase UIDs stored as members of a room can select its room, membership, messages, and read state.
-- A sender can only create messages as their own authenticated Firebase UID.
-- Validate message length, room membership, message type, and allowed update fields in database policies or constrained RPCs.
-- Do not expose service-role keys in Android.
-- Keep the first release text-only; do not enable public media buckets.
+- [x] Pin compatible Supabase Kotlin and Ktor versions for the existing Kotlin 2.1 / Java 17 toolchain.
+- [x] Add the Supabase client/provider and Firebase ID token supplier.
+- [x] Keep Supabase URL and publishable key in ignored local build configuration.
+- [x] Add protected-read diagnostics for development.
+- [x] Preserve Firebase as the only app sign-in identity provider.
 
-**Exit gate:** test both partner accounts and a third unrelated account directly against Supabase. Confirm isolation with actual RLS tests before integrating Android.
+Reference: [US_CHAT_STAGE_2_ANDROID.md](./US_CHAT_STAGE_2_ANDROID.md).
 
-### Stage 2 — Android Supabase foundation (no chat navigation yet)
+## Stage 3 — First usable text conversation
 
-1. Check the Supabase Kotlin SDK, Kotlin, serialization plugin, and Ktor versions for compatibility with the existing Kotlin 2.1.21 / AGP 8.5.2 / Java 17 project.
-2. Add only the required Supabase modules: Auth-token integration, PostgREST, and Realtime.
-3. Add Supabase URL and publishable key through local build configuration; never hardcode a service-role key.
-4. Create a small Supabase client/provider that obtains a fresh Firebase ID token when needed.
-5. Add connection and authentication state handling without changing existing login or pairing flows.
-6. Add a small diagnostic path to verify the current UID and a protected database read during development.
+**Goal:** deliver a simple private chat before adding complex message types.
 
-**Exit gate:** debug and release builds compile; both paired devices authenticate; existing Firebase features and sign-in recovery remain unchanged.
+- [x] Add the Chat destination and Material 3 conversation UI.
+- [x] Load and render text messages chronologically.
+- [x] Add text send with a 4,000-character limit and Firebase sender validation.
+- [x] Add loading, empty, retry, and send/error states.
+- [x] Add Realtime INSERT subscription and screen-scoped cleanup.
+- [ ] Keep two-phone send/receive, listener cleanup, and unrelated-user denial in the final acceptance record.
 
-### Stage 3 — First usable Us Chat (text-only)
+Reference: [US_CHAT_STAGE_3_ANDROID.md](./US_CHAT_STAGE_3_ANDROID.md).
 
-1. Add a dedicated Chat destination in the existing navigation.
-2. Build the conversation screen using the current UsApp Material 3 theme and dark/light palette.
-3. Load the latest messages with descending database pagination, then display them chronologically.
-4. Send plain text messages with a strict length limit and server-generated timestamp.
-5. Subscribe to new messages through Supabase Realtime and clean up listeners when leaving the screen.
-6. Include loading, empty, offline, retry, and send-failure states.
-7. Prevent duplicate sends and keep scrolling stable as messages arrive.
+## Stage 4 — Reliability and conversation basics
 
-**Exit gate:** send and receive between the two phones in real time; verify sender identity, ordering, pagination, listener cleanup, and RLS rejection from a third account.
+**Goal:** make the text conversation dependable under real mobile network conditions.
 
-### Stage 4 — Message reliability and conversation basics
+Stage 4 is divided into three controlled checkpoints:
 
-1. Add local pending-send state and safe retry behavior.
-2. Add message delivery state based on confirmed database writes.
-3. Add read receipts using a per-user read cursor or read table; avoid updating every old message individually.
-4. Add message pagination and efficient unread count calculation.
-5. Handle app background/foreground transitions and reconnects without duplicate listeners or duplicate messages.
+1. **4.1 Realtime foundation:** subscribe to current-room message changes, clean up listeners, and retain a catch-up fallback.
+2. **4.2 Synchronization reliability — active:** authoritative refresh after reconnect, duplicate prevention, stable chronological ordering, and keyset pagination for older history.
+3. **4.3 Offline sending and read receipts — paused:** app-private durable outbox, WorkManager retry, stable client message IDs, idempotent server writes, and per-member read cursors.
 
-**Exit gate:** test poor connectivity, app process restarts, repeated taps, and simultaneous messages from both phones.
+Detailed tasks, migration order, build commands, and acceptance tests: [US_CHAT_STAGE_4_ROADMAP.md](./US_CHAT_STAGE_4_ROADMAP.md).
 
-### Stage 5 — Conversation features
+**Do not move to Stage 5 until all Stage 4 gates pass on both phones.**
 
-Implement separately, in this order:
+## Stage 5 — Conversation features
 
-1. Emoji reactions.
-2. Reply to a specific message.
-3. Edit and delete the sender's own messages, with clear edited/deleted presentation.
-4. Save a message or shared text into Memories without duplicating existing media.
-5. Chat appearance options such as wallpaper and accent color.
+Implement and test each item independently. Keep text-only behavior stable while adding these capabilities.
 
-Each feature gets its own build and device test before the next one starts.
+### 5.1 Emoji reactions
+- Add a normalized reaction table keyed by message and Firebase UID.
+- Limit a member to one reaction per emoji per message (or define a single-reaction-per-user rule before migration).
+- Enforce same-room membership and own-user identity through RLS.
+- Show reaction counts and the partner's reaction state in the UI.
+- Handle removal and Realtime updates without duplicating reaction chips.
 
-### Stage 6 — Notifications
+### 5.2 Replies
+- Use the existing `reply_to_message_id` reference.
+- Enforce that the parent message belongs to the same room.
+- Display a compact quoted-message preview and navigate to the original message.
+- Define behavior when the original message is deleted.
 
-1. Reuse the existing FCM token registration and notification channels.
-2. Design a trusted server-side notification sender; never send FCM credentials from the Android client.
-3. Prefer a Supabase-side secure function or webhook only after confirming the Free-plan quota and secret-handling requirements.
-4. Support private notification previews and the existing quiet-hours settings.
-5. Avoid notifying the sender's own device and avoid duplicate notifications.
+### 5.3 Edit and delete
+- Permit a user to edit or delete only their own messages.
+- Add strict database grants/RLS or a constrained database function; do not rely on Android-only checks.
+- Prefer a clear edited marker and a tombstone for deleted messages so conversation history remains structurally consistent.
+- Define edit/delete time limits and whether partner notifications are generated.
+- Reconcile concurrent edits and deletes safely.
 
-**Exit gate:** partner receives a notification while the app is backgrounded or closed, tapping it opens the correct conversation, and no credential is present in the APK.
+### 5.4 Save to Memories
+- Allow a user to save a text message or shared link into the existing Memories feature.
+- Reuse the existing Memories data model and UI where appropriate.
+- Avoid copying or duplicating media objects.
+- Preserve the original chat message reference so users can return to the conversation.
+- Define what happens to a saved item if its source chat message is later deleted.
 
-### Stage 7 — Media and later enhancements
+### 5.5 Chat appearance
+- Optional per-user wallpaper, bubble accent, and text-size preferences.
+- Keep customization local unless shared appearance is explicitly chosen.
+- Respect dark mode, contrast, dynamic text sizing, and accessibility.
 
-Only after text messaging, RLS, synchronization, and notifications are stable:
+## Stage 6 — Push notifications
 
-- Private image attachments using Supabase Storage with RLS-protected buckets and short-lived access.
-- Image compression, thumbnails, upload progress, retry, and deletion.
-- Voice messages only after storage limits and UX are assessed.
-- Typing/online state using short-lived Realtime presence, not permanent database writes.
-- Chat-to-Memories and chat-to-calendar integrations.
+**Goal:** notify the partner while UsApp is backgrounded or closed without exposing credentials.
 
-## v2.5.0 release scope
+- [ ] Inspect the existing FCM token registration and `UsMessagingService` before adding parallel notification infrastructure.
+- [ ] Choose a trusted sender (for example, a Supabase Edge Function, webhook-backed service, or another supported trusted environment) only after reviewing current pricing, free quotas, secret management, and operational limits.
+- [ ] Trigger notifications from confirmed message inserts, not from an untrusted Android client request.
+- [ ] Store server-only notification credentials in the selected provider's secret store.
+- [ ] Notify only the other room member; do not notify the sender's own device.
+- [ ] Prevent duplicate notifications during retry/replay.
+- [ ] Support private previews, notification channels, deep links to the correct conversation, and existing quiet-hours behavior.
+- [ ] Handle token refresh and invalid/expired FCM tokens.
 
-The first v2.5.0 release should be limited to:
+**Exit gate:** partner receives one correct notification while the app is backgrounded or closed; tapping opens the right conversation; no server credential exists in the APK.
 
-- Secure Firebase-to-Supabase authentication.
-- Private one-to-one room tied to the existing couple.
-- Text messages.
-- Real-time delivery while connected.
-- Pagination and basic sent/read state only if it passes the reliability milestone.
-- A polished Chat screen integrated into existing navigation.
+## Stage 7 — Media and live presence
 
-Do not include image attachments, voice messages, typing indicators, online status, or push notifications in the initial scope unless each is independently completed and tested.
+Only start after text messaging, Stage 4 synchronization, read state, and Stage 6 notifications are stable.
 
-## Versioning and test workflow
+### 7.1 Image attachments
+- Private Supabase Storage bucket with explicit RLS policies tied to the same two room members.
+- Upload/download authorization that never exposes service-role credentials.
+- Image compression, thumbnail generation, progress, cancellation, retry, and size limits.
+- Safe local caching and cleanup.
+- Delete both message metadata and storage objects through a trusted, failure-safe flow.
+- Test expired access, interrupted upload, account switching, and cross-room denial.
 
-- Current production baseline: v2.4.9, versionCode 22.
-- Target release: v2.5.0, versionCode 23.
-- Work branch: `feature/us-chat-2.5.0`.
-- Keep the branch unmerged while testing.
-- For each milestone: inspect current code, implement only that milestone, review the diff, let the developer build with Gradle, test on both phones, fix reported errors, and proceed only after approval.
-- Never claim a Gradle build or device test was performed unless it actually was.
-- Preserve existing app features and Firestore data. Do not deploy Firestore rules or schema changes unless the corresponding milestone requires them and the diff has been reviewed.
+### 7.2 Voice messages
+- Decide maximum duration, file format, bitrate, and storage budget before implementation.
+- Add recording permissions, recording preview/cancel, playback, upload progress, and retry.
+- Respect audio focus, headset routing, and accessibility.
+- Verify actual Free-plan storage and egress limits before release.
 
-## Official references
+### 7.3 Typing and online state
+- Use short-lived Supabase Realtime Presence or Broadcast state.
+- Do not write high-frequency typing/online changes to PostgreSQL.
+- Add timeout and lifecycle cleanup so stale online indicators disappear.
+- Treat presence as approximate, not as a security or delivery guarantee.
 
-- Supabase Firebase Auth integration: https://supabase.com/docs/guides/auth/third-party/firebase-auth
-- Supabase Kotlin installation: https://supabase.com/docs/reference/kotlin/installing
-- Supabase Kotlin Android quickstart: https://supabase.com/docs/guides/getting-started/quickstarts/kotlin
-- Firebase custom claims: https://firebase.google.com/docs/auth/admin/custom-claims
-- Firebase pricing plans: https://firebase.google.com/docs/projects/billing/firebase-pricing-plans
+### 7.4 Later integrations
+- Share a chat message into Memories or calendar.
+- Optional shared location card only if it can reuse existing privacy and location-sharing controls.
+- Do not duplicate the existing live location feature inside Chat.
+
+## Stage 8 — Security, quality, and production release
+
+**Goal:** validate the whole feature as one production system.
+
+### Security and privacy
+- [ ] Re-run RLS tests as both partners and an unrelated Firebase account.
+- [ ] Test mismatched sender UID, room ID, read cursor, message ID, reaction owner, and cross-room references.
+- [ ] Confirm no privileged credentials are in the repository, logs, crash reports, APK, or WorkManager data.
+- [ ] Review Realtime event visibility and Storage policies.
+- [ ] Verify local outbox data is scoped to the signed-in Firebase UID and safely handled on logout/account changes.
+- [ ] Document data deletion and retention behavior, including attachment cleanup.
+
+### Reliability and UX
+- [ ] Test airplane mode, weak network, rapid reconnect, process death, device restart, and app update.
+- [ ] Test simultaneous sends, duplicate events, same-timestamp messages, pagination boundaries, and long conversations.
+- [ ] Test light/dark themes, keyboard behavior, small screens, font scaling, TalkBack labels, and tap targets.
+- [ ] Check battery/network usage and avoid unbounded polling or high-frequency database writes.
+- [ ] Verify no regression in pairing, Memories, Our Instant, Maps, location sharing, and other app features.
+
+### Release process
+- [ ] Complete all Stage 4–7 gates for features included in the release.
+- [ ] Update release notes and version metadata only when the release is approved.
+- [ ] Build debug and signed release variants using the existing matching signing setup.
+- [ ] Test upgrade/install behavior without uninstalling the existing app or clearing user data.
+- [ ] Review Supabase usage limits, backups/recovery expectations, and production monitoring.
+- [ ] Merge the feature branch only after the developer accepts the final test results.
+
+## Deferred ideas (not required for v2.5.0)
+
+These ideas may be considered after the core roadmap, based on actual usage and free-tier capacity:
+
+- Message search and conversation filters.
+- Pinned messages and saved chat bookmarks.
+- Link previews with safe URL handling.
+- Shared photos/voice notes beyond the initial attachment implementation.
+- Chat export and user-controlled conversation cleanup.
+- Optional message reminders or scheduled messages.
+
+Do not let deferred enhancements delay private, reliable text messaging.
+
+## Release scope
+
+The first Us Chat release should prioritize:
+
+1. Secure Firebase-to-Supabase identity and RLS.
+2. Private one-to-one room tied to the existing couple.
+3. Reliable text send/receive, pagination, reconnect recovery, and safe retries.
+4. Basic read receipts only after their acceptance tests pass.
+5. A polished Chat screen that preserves all current UsApp features.
+
+Image attachments, voice messages, typing indicators, online presence, and other advanced enhancements remain out of the first release unless separately completed, tested, and explicitly approved.
+
+## Branch and collaboration rules
+
+- Feature branch: `feature/us-chat-2.5.0`.
+- Keep PR #7 in draft/unmerged state until the developer accepts the implementation and tests.
+- Current production baseline: v2.4.9, versionCode 22. Do not change version metadata during feature development unless requested.
+- For each stage: inspect current code and schema, implement one bounded change, review the full diff, let the developer run Gradle, test on both phones, fix failures, and record acceptance.
+- Never claim a local build, migration, or device test succeeded unless it was actually run and confirmed.
+- Preserve existing app architecture and features; do not modify unrelated Firebase rules or data.
