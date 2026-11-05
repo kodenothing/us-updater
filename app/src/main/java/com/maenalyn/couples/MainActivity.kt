@@ -128,6 +128,7 @@ class MainActivity : FragmentActivity() {
                     statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
                     navigationBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark }
                 )
+                hideNavigationBar()
                 onDispose { }
             }
             UsTheme(dark, paletteIdx) {
