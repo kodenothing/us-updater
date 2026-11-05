@@ -12,7 +12,7 @@ Build a private, real-time, one-to-one messaging feature for the two members of 
 
 ## Authentication and security decision
 
-Preferred integration: Supabase's official Firebase Auth third-party integration. The Android client supplies the current Firebase ID token to the Supabase Kotlin client. Supabase then uses the Firebase UID as the authenticated identity for PostgreSQL Row Level Security (RLS).
+Preferred integration: Supabase's official Firebase Auth third-party integration. The Android client supplies the current Firebase ID token to the Supabase Kotlin client. For RLS, identify the Firebase user through the JWT `sub` claim as text (`auth.jwt()->>'sub'`). Do not use `auth.uid()` for these Firebase UIDs: Supabase casts `auth.uid()`'s `sub` to UUID, while Firebase UIDs are opaque strings.
 
 Important prerequisite: Firebase ID tokens do not contain Supabase's required `role: authenticated` claim by default. Supabase documents that this claim must be added using a privileged Firebase Admin SDK environment. Do not attempt to set custom claims inside the Android app, and never put a service-account key in the repository or APK.
 
@@ -35,6 +35,12 @@ Before coding against the live project, verify the exact Firebase project ID, th
 **Exit gate:** both intended users authenticate through Firebase tokens; an unrelated account cannot access private chat data; no paid Firebase plan or deployed server is required.
 
 ### Stage 1 — Database schema and Row Level Security (Supabase only)
+
+Implementation files on `feature/us-chat-2.5.0`:
+
+- Migration: `supabase/migrations/20261105090000_us_chat_schema.sql`
+- Setup and verification steps: `docs/US_CHAT_STAGE_1_DATABASE.md`
+
 
 Create and review SQL migrations for:
 
