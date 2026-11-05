@@ -43,6 +43,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
+import androidx.compose.material.icons.filled.Chat
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.ContentCopy
@@ -92,6 +93,7 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import com.maenalyn.couples.chat.UsChatScreen
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
@@ -597,6 +599,7 @@ fun HomeScreen(vm: MainVm) {
     val savedPlaces by vm.savedPlaces.collectAsState()
     val placeAlertsEnabled by vm.placeAlertsEnabled.collectAsState()
     val currentUid = Repo.currentUid()
+    val partnerName = couple?.memberNames?.entries?.firstOrNull { it.key != currentUid }?.value.orEmpty().ifBlank { "your person" }
     val dailyUs by vm.dailyUs.collectAsState()
     val busy by vm.busy.collectAsState()
     val appLockEnabled by vm.appLockEnabled.collectAsState()
@@ -609,7 +612,7 @@ fun HomeScreen(vm: MainVm) {
     val heartSizeDp by vm.heartSizeDp.collectAsState()
     val heartAnimationDurationMs by vm.heartAnimationDurationMs.collectAsState()
     var tab by remember { mutableIntStateOf(0) }
-    BackHandler(enabled = tab == 8) { tab = 0 }
+    BackHandler(enabled = tab == 8 || tab == 9) { tab = 0 }
     var confirm by remember { mutableStateOf(false) }
     var showDailyUs by remember { mutableStateOf(false) }
     var todayKey by remember { mutableStateOf(LocalDate.now().toString()) }
@@ -796,6 +799,7 @@ fun HomeScreen(vm: MainVm) {
                             tab == 4 -> "Things we're doing and dreaming"
                             tab == 7 -> "See where we are"
                             tab == 8 -> "Our Instant"
+                            tab == 9 -> "A little space for your words"
                             else -> ""
                         }
                         if (subtitle.isNotBlank()) {
@@ -813,6 +817,13 @@ fun HomeScreen(vm: MainVm) {
                             Icons.Filled.Map,
                             contentDescription = "Our map",
                             tint = if (tab == 7) cs.primary else cs.onSurface
+                        )
+                    }
+                    IconButton(onClick = { tab = 9 }) {
+                        Icon(
+                            Icons.Filled.Chat,
+                            contentDescription = "Us Chat",
+                            tint = if (tab == 9) cs.primary else cs.onSurface
                         )
                     }
                     IconButton(onClick = { tab = 6 }) {
@@ -924,6 +935,12 @@ fun HomeScreen(vm: MainVm) {
                     code = vm.code.value.orEmpty(),
                     uid = currentUid.orEmpty(),
                     pad = pad
+                )
+                9 -> UsChatScreen(
+                    coupleCode = vm.code.value.orEmpty(),
+                    currentUid = currentUid.orEmpty(),
+                    partnerName = partnerName,
+                    modifier = Modifier.padding(pad)
                 )
                 else -> SettingsTab(vm, couple, { confirm = true }, pad)
             }
