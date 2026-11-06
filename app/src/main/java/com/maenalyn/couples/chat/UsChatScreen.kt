@@ -141,6 +141,9 @@ internal fun UsChatScreen(
             }
             roomId = localState.first
             outboxMessages = localState.second
+            localState.first?.let { cachedRoomId ->
+                hiddenMessageIds = context.loadCachedHiddenMessageIds(cachedRoomId, currentUid)
+            }
             // Re-enqueue older local messages before the user can add newer ones.
             localState.second
                 .filter { it.status == UsChatOutboxStatus.PENDING }
@@ -184,7 +187,11 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.listForRoom(context, room.id, currentUid)
             }
             hasInitialPage = true
-            hiddenMessageIds = UsChatRepository.loadHiddenMessageIds(room.id, currentUid)
+            hiddenMessageIds = (
+                UsChatRepository.loadHiddenMessageIds(room.id, currentUid) +
+                    context.loadCachedHiddenMessageIds(room.id, currentUid)
+                )
+            context.saveCachedHiddenMessageIds(room.id, currentUid, hiddenMessageIds)
             readStates = UsChatRepository.loadReadStates(room.id)
         } catch (cancelled: CancellationException) {
             throw cancelled
@@ -248,7 +255,11 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
                 UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
             }
-            hiddenMessageIds = UsChatRepository.loadHiddenMessageIds(activeRoomId, currentUid)
+            hiddenMessageIds = (
+                UsChatRepository.loadHiddenMessageIds(activeRoomId, currentUid) +
+                    context.loadCachedHiddenMessageIds(activeRoomId, currentUid)
+                )
+            context.saveCachedHiddenMessageIds(activeRoomId, currentUid, hiddenMessageIds)
             readStates = UsChatRepository.loadReadStates(activeRoomId)
         }
 
@@ -296,7 +307,11 @@ internal fun UsChatScreen(
         val hiddenInsertCollector = launch {
             hiddenInsertFlow.collect {
                 try {
-                    hiddenMessageIds = UsChatRepository.loadHiddenMessageIds(activeRoomId, currentUid)
+                    hiddenMessageIds = (
+                        UsChatRepository.loadHiddenMessageIds(activeRoomId, currentUid) +
+                            context.loadCachedHiddenMessageIds(activeRoomId, currentUid)
+                        )
+                    context.saveCachedHiddenMessageIds(activeRoomId, currentUid, hiddenMessageIds)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (_: Exception) {
@@ -514,6 +529,7 @@ internal fun UsChatScreen(
             try {
                 UsChatRepository.removeMessageForMe(activeRoomId, messageId, currentUid)
                 hiddenMessageIds = hiddenMessageIds + messageId
+                context.saveCachedHiddenMessageIds(activeRoomId, currentUid, hiddenMessageIds)
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
@@ -756,6 +772,23 @@ internal fun UsChatScreen(
     }
 }
 
+
+private fun Context.loadCachedHiddenMessageIds(roomId: String, uid: String): Set<String> =
+    getSharedPreferences("us_chat_hidden_messages", Context.MODE_PRIVATE)
+        .getStringSet("$roomId:$uid", emptySet())
+        ?.toSet()
+        .orEmpty()
+
+private fun Context.saveCachedHiddenMessageIds(
+    roomId: String,
+    uid: String,
+    messageIds: Set<String>
+) {
+    getSharedPreferences("us_chat_hidden_messages", Context.MODE_PRIVATE)
+        .edit()
+        .putStringSet("$roomId:$uid", messageIds.toSet())
+        .apply()
+}
 
 private fun Context.hasValidatedInternet(): Boolean {
     val connectivityManager =
