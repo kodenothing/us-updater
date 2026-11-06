@@ -1947,7 +1947,7 @@ fun SettingsTab(
                                 }
                             } catch (error: Exception) {
                                 updateDialogState = "error"
-                                updateMessage = error.message ?: "Couldn't check for updates. Please try again."
+                                updateMessage = AppMessageText.forDisplay(error, "Couldn't check for updates. Please try again.")
                             } finally {
                                 updateBusy = false
                             }
@@ -2088,7 +2088,7 @@ fun SettingsTab(
                                     }
                                 } catch (error: Exception) {
                                     updateDialogState = "error"
-                                    updateMessage = error.message ?: "Couldn't download the update. Please try again."
+                                    updateMessage = AppMessageText.forDisplay(error, "Couldn't download the update. Please try again.")
                                 } finally {
                                     updateBusy = false
                                 }
@@ -2104,7 +2104,7 @@ fun SettingsTab(
                                 else updateMessage = "Allow Us to install unknown apps, then tap Install again."
                             }.onFailure {
                                 updateDialogState = "error"
-                                updateMessage = it.message ?: "Couldn't open Android's installer."
+                                updateMessage = AppMessageText.forDisplay(it, "Couldn't open Android's installer.")
                             }
                         }
                     ) { Text("Install") }
