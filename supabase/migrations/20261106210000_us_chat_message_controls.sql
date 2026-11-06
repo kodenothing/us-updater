@@ -14,6 +14,9 @@ alter table public.chat_messages
     drop constraint if exists chat_messages_body_check;
 
 alter table public.chat_messages
+    drop constraint if exists chat_messages_body_deleted_state_check;
+
+alter table public.chat_messages
     add constraint chat_messages_body_deleted_state_check
     check (
         (
