@@ -1,5 +1,7 @@
 package com.maenalyn.couples.chat
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,7 +25,10 @@ import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.ChatBubbleOutline
 import androidx.compose.material.icons.filled.Lock
 import androidx.compose.material.icons.filled.Refresh
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -47,6 +52,7 @@ import androidx.compose.ui.text.input.KeyboardCapitalization
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.platform.LocalContext
+import com.maenalyn.couples.AppMessageText
 import android.content.Context
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
@@ -76,6 +82,7 @@ internal fun UsChatScreen(
     coupleCode: String,
     currentUid: String,
     partnerName: String,
+    myNickname: String,
     modifier: Modifier = Modifier
 ) {
     val colors = MaterialTheme.colorScheme
@@ -100,9 +107,19 @@ internal fun UsChatScreen(
     var readStates by remember(coupleCode, currentUid) {
         mutableStateOf<List<UsChatReadState>>(emptyList())
     }
+    var hiddenMessageIds by remember(coupleCode, currentUid) {
+        mutableStateOf<Set<String>>(emptySet())
+    }
     val partnerReadState = readStates.firstOrNull { it.readerUid != currentUid }
-    val timelineMessages = remember(messages, outboxMessages) {
-        buildChatTimeline(messages, outboxMessages)
+    val timelineMessages = remember(messages, outboxMessages, hiddenMessageIds, currentUid, myNickname, partnerName) {
+        buildChatTimeline(
+            serverMessages = messages,
+            outboxMessages = outboxMessages,
+            currentUid = currentUid,
+            myNickname = myNickname,
+            partnerName = partnerName,
+            hiddenMessageIds = hiddenMessageIds
+        )
     }
 
     LaunchedEffect(coupleCode, currentUid, refreshTrigger) {
@@ -135,7 +152,7 @@ internal fun UsChatScreen(
                 throw cancelled
             } catch (failure: Exception) {
                 val cachedRoomId = localState.first
-                if (cachedRoomId == null || context.hasValidatedInternet()) throw failure
+                if (cachedRoomId == null || context.hasValidatedInternet() && !AppMessageText.isConnectivityFailure(failure)) throw failure
 
                 // The room was resolved during an earlier online session.
                 // Keep the local conversation usable while WorkManager waits
@@ -167,15 +184,16 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.listForRoom(context, room.id, currentUid)
             }
             hasInitialPage = true
+            hiddenMessageIds = UsChatRepository.loadHiddenMessageIds(room.id, currentUid)
             readStates = UsChatRepository.loadReadStates(room.id)
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
-            if (!context.hasValidatedInternet() && roomId != null) {
+            if ((!context.hasValidatedInternet() || AppMessageText.isConnectivityFailure(failure)) && roomId != null) {
                 realtimeLabel = "Offline · messages will send when connected"
                 error = null
             } else {
-                error = failure.message ?: "Couldn't connect to Us Chat."
+                error = AppMessageText.forDisplay(failure, "Couldn't connect to Us Chat.")
             }
         } finally {
             loading = false
@@ -203,6 +221,10 @@ internal fun UsChatScreen(
             table = "chat_messages"
             filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
         }
+        val messageUpdateFlow = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") {
+            table = "chat_messages"
+            filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
+        }
         val readInsertFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
             table = "chat_room_reads"
             filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
@@ -226,6 +248,7 @@ internal fun UsChatScreen(
                 UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
                 UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
             }
+            hiddenMessageIds = UsChatRepository.loadHiddenMessageIds(activeRoomId, currentUid)
             readStates = UsChatRepository.loadReadStates(activeRoomId)
         }
 
@@ -237,12 +260,47 @@ internal fun UsChatScreen(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    if (!context.hasValidatedInternet()) {
-                        realtimeLabel = "Offline · messages will send when connected"
+                    if (!context.hasValidatedInternet() || AppMessageText.isConnectivityFailure(failure)) {
+                        realtimeLabel = "Offline · messages will sync when connected"
                         error = null
                     } else {
-                        error = failure.message ?: "A new message arrived, but the chat couldn't refresh."
+                        error = AppMessageText.forDisplay(failure, "A new message arrived, but the chat couldn't refresh.")
                     }
+                }
+            }
+        }
+
+        val messageUpdateCollector = launch {
+            messageUpdateFlow.collect {
+                try {
+                    // Refresh every server message already loaded in this timeline,
+                    // including older pages, so a tombstone appears immediately.
+                    val loadedIds = messages.map { it.id }
+                    val changedRows = UsChatRepository.loadMessagesByIds(activeRoomId, loadedIds)
+                    messages = mergeChatTimeline(messages, changedRows)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    if (!context.hasValidatedInternet() || AppMessageText.isConnectivityFailure(failure)) {
+                        realtimeLabel = "Offline · messages will sync when connected"
+                    } else {
+                        error = AppMessageText.forDisplay(failure, "Couldn't refresh this message. Please try again.")
+                    }
+                }
+            }
+        }
+        val hiddenInsertFlow = channel.postgresChangeFlow<PostgresAction.Insert>(schema = "public") {
+            table = "chat_message_user_hides"
+            filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
+        }
+        val hiddenInsertCollector = launch {
+            hiddenInsertFlow.collect {
+                try {
+                    hiddenMessageIds = UsChatRepository.loadHiddenMessageIds(activeRoomId, currentUid)
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (_: Exception) {
+                    // Personal hide markers are private; the next refresh will reconcile them.
                 }
             }
         }
@@ -289,11 +347,11 @@ internal fun UsChatScreen(
                     } catch (cancelled: CancellationException) {
                         throw cancelled
                     } catch (failure: Exception) {
-                        if (!context.hasValidatedInternet()) {
-                            realtimeLabel = "Offline · messages will send when connected"
+                        if (!context.hasValidatedInternet() || AppMessageText.isConnectivityFailure(failure)) {
+                            realtimeLabel = "Offline · messages will sync when connected"
                             error = null
                         } else {
-                            error = failure.message ?: "Chat reconnected, but messages couldn't refresh."
+                            error = AppMessageText.forDisplay(failure, "Chat reconnected, but messages couldn't refresh.")
                         }
                     }
                 }
@@ -319,17 +377,19 @@ internal fun UsChatScreen(
                 } catch (cancelled: CancellationException) {
                     throw cancelled
                 } catch (failure: Exception) {
-                    if (!context.hasValidatedInternet()) {
-                        realtimeLabel = "Offline · messages will send when connected"
+                    if (!context.hasValidatedInternet() || AppMessageText.isConnectivityFailure(failure)) {
+                        realtimeLabel = "Offline · messages will sync when connected"
                         error = null
                     } else {
-                        error = failure.message ?: "Couldn't refresh messages. Check your connection."
+                        error = AppMessageText.forDisplay(failure, "Couldn't refresh messages. Check your connection.")
                         realtimeLabel = "Sync issue · retrying"
                     }
                 }
             }
         } finally {
             messageCollector.cancel()
+            messageUpdateCollector.cancel()
+            hiddenInsertCollector.cancel()
             readInsertCollector.cancel()
             readUpdateCollector.cancel()
             connectionCollector.cancel()
@@ -389,8 +449,8 @@ internal fun UsChatScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = if (context.hasValidatedInternet()) {
-                    failure.message ?: "Couldn't load older messages."
+                error = if (context.hasValidatedInternet() && !AppMessageText.isConnectivityFailure(failure)) {
+                    AppMessageText.forDisplay(failure, "Couldn't load older messages.")
                 } else {
                     "Connect to the internet to load older messages."
                 }
@@ -434,13 +494,45 @@ internal fun UsChatScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = failure.message ?: if (savedLocally) {
-                    "Message saved on this device, but delivery could not be scheduled. Tap Retry."
-                } else {
-                    "Message could not be saved locally. Your draft is still here."
-                }
+                error = AppMessageText.forDisplay(
+                    failure,
+                    if (savedLocally) {
+                        "Message saved on this device, but delivery could not be scheduled. Tap Retry."
+                    } else {
+                        "Message could not be saved locally. Your draft is still here."
+                    }
+                )
             } finally {
                 sending = false
+            }
+        }
+    }
+
+    fun removeMessageForMe(messageId: String) {
+        val activeRoomId = roomId ?: return
+        scope.launch {
+            try {
+                UsChatRepository.removeMessageForMe(activeRoomId, messageId, currentUid)
+                hiddenMessageIds = hiddenMessageIds + messageId
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = AppMessageText.forDisplay(failure, "Couldn't remove this message from your conversation.")
+            }
+        }
+    }
+
+    fun removeMessageForEveryone(messageId: String) {
+        val activeRoomId = roomId ?: return
+        scope.launch {
+            try {
+                UsChatRepository.removeMessageForEveryone(activeRoomId, messageId, currentUid)
+                val updated = UsChatRepository.loadMessagesByIds(activeRoomId, listOf(messageId))
+                messages = mergeChatTimeline(messages, updated)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (failure: Exception) {
+                error = AppMessageText.forDisplay(failure, "Couldn't remove this message for both of you.")
             }
         }
     }
@@ -459,7 +551,7 @@ internal fun UsChatScreen(
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (failure: Exception) {
-                error = failure.message ?: "Couldn't retry this message."
+                error = AppMessageText.forDisplay(failure, "Couldn't retry this message.")
             }
         }
     }
@@ -613,7 +705,9 @@ internal fun UsChatScreen(
                             message = message,
                             mine = mine,
                             seen = mine && message.id == latestSeenOwnMessageId,
-                            onRetry = ::retryOutboxMessage
+                            onRetry = ::retryOutboxMessage,
+                            onRemoveForMe = ::removeMessageForMe,
+                            onRemoveForEveryone = ::removeMessageForEveryone
                         )
                     }
                 }
@@ -694,15 +788,21 @@ private fun mergeChatTimeline(
 private data class ChatTimelineItem(
     val id: String,
     val senderUid: String,
+    val senderName: String,
     val body: String,
     val createdAt: String,
     val clientMessageId: String?,
-    val deliveryState: String?
+    val deliveryState: String?,
+    val isDeleted: Boolean
 )
 
 private fun buildChatTimeline(
     serverMessages: List<UsChatMessage>,
-    outboxMessages: List<UsChatOutboxEntry>
+    outboxMessages: List<UsChatOutboxEntry>,
+    currentUid: String,
+    myNickname: String,
+    partnerName: String,
+    hiddenMessageIds: Set<String>
 ): List<ChatTimelineItem> {
     val confirmedClientIds = serverMessages.mapNotNull { it.clientMessageId }.toSet()
     val result = ArrayList<ChatTimelineItem>(serverMessages.size + outboxMessages.size)
@@ -711,10 +811,12 @@ private fun buildChatTimeline(
         result += ChatTimelineItem(
             id = message.id,
             senderUid = message.senderUid,
+            senderName = if (message.senderUid == currentUid) myNickname.trim().ifBlank { "You" } else partnerName.trim().ifBlank { "Partner" },
             body = message.body,
             createdAt = message.createdAt,
             clientMessageId = message.clientMessageId,
-            deliveryState = null
+            deliveryState = null,
+            isDeleted = !message.deletedAt.isNullOrBlank()
         )
     }
 
@@ -724,15 +826,19 @@ private fun buildChatTimeline(
             result += ChatTimelineItem(
                 id = entry.serverMessageId ?: "local:${entry.clientMessageId}",
                 senderUid = entry.senderUid,
+                senderName = myNickname.trim().ifBlank { "You" },
                 body = entry.body,
                 createdAt = entry.serverCreatedAt
                     ?: Instant.ofEpochMilli(entry.localCreatedAtMs).toString(),
                 clientMessageId = entry.clientMessageId,
-                deliveryState = entry.status
+                deliveryState = entry.status,
+                isDeleted = false
             )
         }
 
-    return result.sortedWith { left, right ->
+    return result
+        .filterNot { it.id in hiddenMessageIds }
+        .sortedWith { left, right ->
         val timeComparison = runCatching {
             Instant.parse(left.createdAt).compareTo(Instant.parse(right.createdAt))
         }.getOrElse { left.createdAt.compareTo(right.createdAt) }
@@ -740,16 +846,21 @@ private fun buildChatTimeline(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun ChatMessageBubble(
     message: ChatTimelineItem,
     mine: Boolean,
     seen: Boolean,
-    onRetry: (String) -> Unit
+    onRetry: (String) -> Unit,
+    onRemoveForMe: (String) -> Unit,
+    onRemoveForEveryone: (String) -> Unit
 ) {
     val colors = MaterialTheme.colorScheme
-    val bubbleColor = if (mine) colors.primary else colors.surfaceVariant
-    val textColor = if (mine) colors.onPrimary else colors.onSurfaceVariant
+    val bubbleColor = if (message.isDeleted) colors.surfaceVariant.copy(alpha = 0.72f)
+        else if (mine) colors.primary else colors.surfaceVariant
+    val textColor = if (message.isDeleted) colors.onSurfaceVariant
+        else if (mine) colors.onPrimary else colors.onSurfaceVariant
     val time = remember(message.createdAt) {
         runCatching {
             DateTimeFormatter.ofPattern("h:mm a")
@@ -757,6 +868,9 @@ private fun ChatMessageBubble(
                 .format(Instant.parse(message.createdAt))
         }.getOrDefault("")
     }
+    var menuExpanded by remember(message.id) { mutableStateOf(false) }
+    var confirmRemoveForEveryone by remember(message.id) { mutableStateOf(false) }
+    val canRemove = message.deliveryState == null && !message.isDeleted
 
     Row(
         Modifier.fillMaxWidth(),
@@ -766,23 +880,63 @@ private fun ChatMessageBubble(
             Modifier.fillMaxWidth(0.86f),
             horizontalAlignment = if (mine) Alignment.End else Alignment.Start
         ) {
-            Surface(
-                color = bubbleColor,
-                shape = RoundedCornerShape(
-                    topStart = 20.dp,
-                    topEnd = 20.dp,
-                    bottomStart = if (mine) 20.dp else 5.dp,
-                    bottomEnd = if (mine) 5.dp else 20.dp
-                )
-            ) {
-                Text(
-                    message.body,
-                    color = textColor,
-                    fontSize = 15.sp,
-                    lineHeight = 21.sp,
-                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
-                )
+            Text(
+                message.senderName,
+                color = colors.onSurfaceVariant,
+                fontSize = 10.sp,
+                fontWeight = FontWeight.SemiBold,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 1.dp)
+            )
+            Box {
+                Surface(
+                    color = bubbleColor,
+                    shape = RoundedCornerShape(
+                        topStart = 20.dp,
+                        topEnd = 20.dp,
+                        bottomStart = if (mine) 20.dp else 5.dp,
+                        bottomEnd = if (mine) 5.dp else 20.dp
+                    ),
+                    modifier = Modifier.combinedClickable(
+                        enabled = canRemove,
+                        onClick = {},
+                        onLongClick = { menuExpanded = true }
+                    )
+                ) {
+                    Text(
+                        text = if (message.isDeleted) "Message deleted 😔" else message.body,
+                        color = textColor,
+                        fontSize = 15.sp,
+                        lineHeight = 21.sp,
+                        fontStyle = if (message.isDeleted) androidx.compose.ui.text.font.FontStyle.Italic else androidx.compose.ui.text.font.FontStyle.Normal,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 10.dp)
+                    )
+                }
+
+                if (canRemove) {
+                    DropdownMenu(
+                        expanded = menuExpanded,
+                        onDismissRequest = { menuExpanded = false }
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text("Remove for me") },
+                            onClick = {
+                                menuExpanded = false
+                                onRemoveForMe(message.id)
+                            }
+                        )
+                        if (mine) {
+                            DropdownMenuItem(
+                                text = { Text("Remove for everyone") },
+                                onClick = {
+                                    menuExpanded = false
+                                    confirmRemoveForEveryone = true
+                                }
+                            )
+                        }
+                    }
+                }
             }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 modifier = Modifier.padding(horizontal = 5.dp, vertical = 1.dp)
@@ -794,7 +948,7 @@ private fun ChatMessageBubble(
                     maxLines = 1,
                     overflow = TextOverflow.Clip
                 )
-                if (seen) {
+                if (seen && !message.isDeleted) {
                     Text(
                         " · Seen",
                         color = colors.primary.copy(alpha = 0.85f),
@@ -828,8 +982,34 @@ private fun ChatMessageBubble(
             }
         }
     }
-}
 
+    if (confirmRemoveForEveryone) {
+        AlertDialog(
+            onDismissRequest = { confirmRemoveForEveryone = false },
+            title = { Text("Remove for everyone?") },
+            text = {
+                Text(
+                    "The original message text will be permanently cleared from the shared conversation. Both of you will see “Message deleted 😔” instead."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        confirmRemoveForEveryone = false
+                        onRemoveForEveryone(message.id)
+                    }
+                ) {
+                    Text("Remove for everyone", color = colors.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirmRemoveForEveryone = false }) {
+                    Text("Cancel")
+                }
+            }
+        )
+    }
+}
 
 private fun compareChatPosition(
     leftCreatedAt: String,
