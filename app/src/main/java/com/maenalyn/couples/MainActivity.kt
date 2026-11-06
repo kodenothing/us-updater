@@ -142,7 +142,6 @@ class MainActivity : FragmentActivity() {
                         if (appLockEnabled && !unlocked) {
                             AppLockScreen(
                                 message = appLockFeedback,
-                                onMessageDismiss = { appLockFeedback = null },
                                 onUnlock = { authenticate { appLockFeedback = null; unlocked = true } }
                             )
                         } else {
@@ -259,7 +258,6 @@ class MainActivity : FragmentActivity() {
 @androidx.compose.runtime.Composable
 private fun AppLockScreen(
     message: String?,
-    onMessageDismiss: () -> Unit,
     onUnlock: () -> Unit
 ) {
     val cs = MaterialTheme.colorScheme
