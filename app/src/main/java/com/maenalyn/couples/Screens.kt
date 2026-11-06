@@ -977,7 +977,7 @@ fun HomeScreen(vm: MainVm) {
                             vm.setKeepLocationSharingInBackground(true)
                         }
                     },
-                    modifier = Modifier.padding(pad)
+                    modifier = Modifier.padding(screenPad)
                 )
                 8 -> OurInstantTab(
                     code = vm.code.value.orEmpty(),
@@ -1110,38 +1110,48 @@ private fun UsBottomNavigationBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 12.dp)
+            .padding(horizontal = 12.dp)
+            .padding(bottom = 10.dp)
             .height(90.dp)
     ) {
-        Row(
+        Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp)
-                .height(62.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .height(64.dp),
+            shape = RoundedCornerShape(26.dp),
+            color = cs.surfaceContainerLow,
+            tonalElevation = 2.dp,
+            shadowElevation = 6.dp
         ) {
-            Row(Modifier.weight(1f).fillMaxHeight()) {
-                leftTabs.forEach { (label, icon, destination) ->
-                    UsNavigationIcon(
-                        label = label,
-                        icon = icon,
-                        selected = selectedTab == destination,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onTabSelected(destination) }
-                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(Modifier.weight(1f).fillMaxHeight()) {
+                    leftTabs.forEach { (label, icon, destination) ->
+                        UsNavigationIcon(
+                            label = label,
+                            icon = icon,
+                            selected = selectedTab == destination,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onTabSelected(destination) }
+                        )
+                    }
                 }
-            }
-            Spacer(Modifier.width(68.dp))
-            Row(Modifier.weight(1f).fillMaxHeight()) {
-                rightTabs.forEach { (label, icon, destination) ->
-                    UsNavigationIcon(
-                        label = label,
-                        icon = icon,
-                        selected = selectedTab == destination,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onTabSelected(destination) }
-                    )
+                Spacer(Modifier.width(68.dp))
+                Row(Modifier.weight(1f).fillMaxHeight()) {
+                    rightTabs.forEach { (label, icon, destination) ->
+                        UsNavigationIcon(
+                            label = label,
+                            icon = icon,
+                            selected = selectedTab == destination,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onTabSelected(destination) }
+                        )
+                    }
                 }
             }
         }
