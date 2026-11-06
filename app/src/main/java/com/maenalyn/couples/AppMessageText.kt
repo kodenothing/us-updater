@@ -51,7 +51,7 @@ internal object AppMessageText {
             }
 
             val message = current.message?.lowercase(Locale.ROOT).orEmpty()
-            if (connectivityPhrases.any(message::contains)) return true
+            if (connectivityPhrases.any { phrase -> message.contains(phrase) }) return true
             current = current.cause
         }
         return false
@@ -62,10 +62,10 @@ internal object AppMessageText {
         if (message.isBlank()) return fallback
 
         val normalized = message.lowercase(Locale.ROOT)
-        if (connectivityPhrases.any(normalized::contains)) {
+        if (connectivityPhrases.any { phrase -> normalized.contains(phrase) }) {
             return "You're offline or the connection is interrupted. Us will reconnect when your internet is available."
         }
-        if (technicalPhrases.any(normalized::contains)) return fallback
+        if (technicalPhrases.any { phrase -> normalized.contains(phrase) }) return fallback
 
         // Exception messages sometimes append host names or diagnostics after
         // the first line. Only display a short, readable first line.
