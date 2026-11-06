@@ -23,13 +23,11 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Favorite
-import androidx.compose.material.icons.filled.Image
 import androidx.compose.material3.Button
 import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
@@ -47,7 +45,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 
@@ -67,12 +64,14 @@ class LivePhotoWidgetConfigActivity : ComponentActivity() {
         }
 
         setContent {
-            val paletteIndex = getSharedPreferences("us", MODE_PRIVATE)
-                .getInt("palette", 0)
-            UsTheme(
-                dark = androidx.compose.foundation.isSystemInDarkTheme(),
-                paletteIndex = paletteIndex
-            ) {
+            val widgetPreferences = getSharedPreferences("us", MODE_PRIVATE)
+            val paletteIndex = widgetPreferences.getInt("palette", 0)
+            val dark = when (widgetPreferences.getInt("themeMode", 0)) {
+                1 -> false
+                2 -> true
+                else -> androidx.compose.foundation.isSystemInDarkTheme()
+            }
+            UsTheme(dark = dark, paletteIndex = paletteIndex) {
                 var selected by remember {
                     mutableStateOf(OurInstantWidgetDesigns.load(this, appWidgetId))
                 }
