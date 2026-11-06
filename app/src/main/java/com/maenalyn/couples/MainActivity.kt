@@ -68,6 +68,7 @@ import kotlinx.coroutines.delay
 class MainActivity : FragmentActivity() {
     private val vm: MainVm by viewModels()
     private var lockStateSetter: ((Boolean) -> Unit)? = null
+    private var appLockFeedbackSetter: ((String?) -> Unit)? = null
     private var splashTrigger by mutableIntStateOf(0)
 
     companion object {
@@ -105,6 +106,7 @@ class MainActivity : FragmentActivity() {
             val systemDark = isSystemInDarkTheme()
             val dark = when (mode) { 1 -> false; 2 -> true; else -> systemDark }
             var unlocked by remember { mutableStateOf(!appLockEnabled) }
+            var appLockFeedback by remember { mutableStateOf<String?>(null) }
             var showDndWelcome by remember { mutableStateOf(false) }
             androidx.compose.runtime.LaunchedEffect(splashVisible, unlocked) {
                 if (!splashVisible && unlocked) {
@@ -122,7 +124,10 @@ class MainActivity : FragmentActivity() {
             androidx.compose.runtime.LaunchedEffect(appLockEnabled) {
                 if (!appLockEnabled) unlocked = true
             }
-            SideEffect { lockStateSetter = { shouldLock -> unlocked = !shouldLock } }
+            SideEffect {
+                lockStateSetter = { shouldLock -> unlocked = !shouldLock }
+                appLockFeedbackSetter = { appLockFeedback = it }
+            }
             DisposableEffect(dark) {
                 enableEdgeToEdge(
                     statusBarStyle = SystemBarStyle.auto(Color.TRANSPARENT, Color.TRANSPARENT) { dark },
@@ -135,7 +140,11 @@ class MainActivity : FragmentActivity() {
                 Box(Modifier.fillMaxSize()) {
                     Surface(Modifier.fillMaxSize(), color = MaterialTheme.colorScheme.background) {
                         if (appLockEnabled && !unlocked) {
-                            AppLockScreen(onUnlock = { authenticate { unlocked = true } })
+                            AppLockScreen(
+                                message = appLockFeedback,
+                                onMessageDismiss = { appLockFeedback = null },
+                                onUnlock = { authenticate { appLockFeedback = null; unlocked = true } }
+                            )
                         } else {
                             val c = currentCode
                             if (c == null) PairingScreen(vm) else PairingFlowScreen(vm, c)
@@ -225,7 +234,7 @@ class MainActivity : FragmentActivity() {
                 "Set up a fingerprint, face unlock, or device screen lock first."
             else
                 "Enroll a fingerprint or face biometric first."
-            Toast.makeText(this, setupText, Toast.LENGTH_LONG).show()
+            appLockFeedbackSetter?.invoke(setupText)
             return
         }
         val prompt = BiometricPrompt(
@@ -248,7 +257,11 @@ class MainActivity : FragmentActivity() {
 }
 
 @androidx.compose.runtime.Composable
-private fun AppLockScreen(onUnlock: () -> Unit) {
+private fun AppLockScreen(
+    message: String?,
+    onMessageDismiss: () -> Unit,
+    onUnlock: () -> Unit
+) {
     val cs = MaterialTheme.colorScheme
     Box(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(cs.primaryContainer, cs.background))).padding(28.dp),
@@ -265,6 +278,22 @@ private fun AppLockScreen(onUnlock: () -> Unit) {
             Text("Your space is private", style = MaterialTheme.typography.titleLarge, fontWeight = FontWeight.Bold)
             Text("Unlock to open your little world together.", color = cs.onSurfaceVariant, textAlign = TextAlign.Center)
             Spacer(Modifier.height(20.dp))
+            message?.let {
+                Spacer(Modifier.height(16.dp))
+                Surface(
+                    color = cs.errorContainer,
+                    contentColor = cs.onErrorContainer,
+                    shape = RoundedCornerShape(18.dp),
+                    modifier = Modifier.fillMaxWidth()
+                ) {
+                    Text(
+                        text = it,
+                        modifier = Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
+                        textAlign = TextAlign.Center,
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
             Button(onClick = onUnlock, shape = RoundedCornerShape(50)) {
                 Icon(Icons.Filled.Favorite, null)
                 Spacer(Modifier.size(8.dp))
