@@ -170,3 +170,39 @@ Record dates in local Philippine time. Do not mark a test passed based only on c
 |  |  |  |  |
 
 Acceptance rule: Stage 4.3 is not complete until the offline outbox, idempotency, account-switch, read-receipt, RLS, and two-phone checks pass. Keep PR #7 draft and unmerged until the developer explicitly approves it.
+
+
+---
+
+## F. Message nicknames, deletion, and user-facing offline feedback
+
+Apply `supabase/migrations/20261106210000_us_chat_message_controls.sql` once before message deletion tests.
+
+| # | Test | Expected result | Status |
+|---|---|---|---|
+| F1 | Send messages from both phones after setting different nicknames in Settings → Your nickname. | Each message displays the nickname of its sender. Changing a nickname updates the label on later renders without creating a separate chat profile. | [ ] |
+| F2 | Long-press a received message and choose Remove for me. | It disappears only on the current account; the partner still sees the original message. | [ ] |
+| F3 | Long-press a received message and choose Remove for everyone. | The option is not available for another person's message. | [ ] |
+| F4 | Long-press your own sent message and choose Remove for everyone, then confirm. | Original body is cleared from the active database row; both phones show `Message deleted 😔` in the original timeline position. | [ ] |
+| F5 | Query a removed-for-everyone row in Supabase. | `body = ''`, `deleted_at` is not null, `deleted_by_uid` is the sender UID; message row and foreign-key references remain. | [ ] |
+| F6 | Remove the same message for me on one phone after the partner has hidden a different message for themselves. | Hide markers are account-specific; neither member can see or alter the other's hidden-message list. | [ ] |
+| F7 | Try calling the remove-for-everyone RPC as the non-sender or an unrelated Firebase account. | Supabase rejects the operation; no message body or tombstone changes. | [ ] |
+| F8 | Remove a message while the other phone has Chat open and is viewing an older loaded page. | Realtime UPDATE refreshes the loaded row; the original body is replaced by the tombstone without manual refresh. | [ ] |
+| F9 | Turn off internet/DNS resolution and trigger a background sync while Chat is open. | Bottom feedback uses an app-authored offline sentence. No raw `UNAVAILABLE`, host name, IP, or exception class is shown. Queued chat messages remain in their outbox state. | [ ] |
+| F10 | Review Pairing copy-code, Settings permission, DND access, notification settings, app updater, and app-lock feedback. | User-facing messages are concise and actionable; routine Home/Settings feedback uses the branded snackbar. | [ ] |
+
+### F5 database verification
+
+Replace IDs locally; never paste message bodies or real UIDs into a public issue.
+
+```sql
+select id, room_id, sender_uid, body, deleted_at, deleted_by_uid
+from public.chat_messages
+where id = 'YOUR_MESSAGE_UUID';
+```
+
+Expected for a shared removal: empty `body`, non-null `deleted_at`, and the sender's Firebase UID in `deleted_by_uid`.
+
+### Manual SQL reference
+
+See [US_CHAT_MESSAGE_CONTROLS.md](./US_CHAT_MESSAGE_CONTROLS.md) for safe manual queries for Remove for me and Remove for everyone, and the difference between clearing the live message body and retaining a tombstone row.
