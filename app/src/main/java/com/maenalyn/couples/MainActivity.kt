@@ -165,11 +165,7 @@ class MainActivity : FragmentActivity() {
                                             .edit().putBoolean("bypassDndNotifications", true).apply()
                                         UsNotifications.createChannels(this@MainActivity)
                                         if (!UsNotifications.openDndAccessSettings(this@MainActivity)) {
-                                            Toast.makeText(
-                                                this@MainActivity,
-                                                "Could not open Do Not Disturb access settings. You can enable it later in Us Settings.",
-                                                Toast.LENGTH_LONG
-                                            ).show()
+                                            vm.message.value = "Could not open Do Not Disturb access settings. You can enable it later in Us Settings."
                                         }
                                     }
                                 ) { Text("Open DND settings") }
