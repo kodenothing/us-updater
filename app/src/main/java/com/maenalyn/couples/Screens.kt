@@ -213,7 +213,7 @@ fun PairingScreen(vm: MainVm) {
                 CircularProgressIndicator(strokeWidth = 3.dp)
             }
             msg?.let {
-                Text(it, color = if (it == "Pairing code copied.") cs.primary else cs.error, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp))
+                Text(AppMessageText.forDisplay(it), color = if (it == "Pairing code copied.") cs.primary else cs.error, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp))
             }
         }
     }
@@ -571,7 +571,7 @@ private fun PairingInviteScreen(code: String, message: String?) {
             }
             message?.let {
                 Text(
-                    it,
+                    AppMessageText.forDisplay(it),
                     color = cs.error,
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodySmall,
@@ -1858,7 +1858,7 @@ fun SettingsTab(
                 OutlinedButton(
                     onClick = {
                         val opened = UsNotifications.openDndAccessSettings(context)
-                        if (!opened) Toast.makeText(context, "Could not open Do Not Disturb access settings.", Toast.LENGTH_LONG).show()
+                        if (!opened) vm.message.value = "Could not open Do Not Disturb access settings. You can enable it in Android Settings."
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Grant Do Not Disturb access") }
