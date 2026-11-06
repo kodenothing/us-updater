@@ -52,6 +52,7 @@ import androidx.compose.material.icons.filled.Image
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Favorite
 import androidx.compose.material.icons.filled.Map
+import androidx.compose.material.icons.filled.Menu
 import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Widgets
@@ -784,7 +785,122 @@ fun HomeScreen(vm: MainVm) {
         Triple("Lists", Icons.Filled.CheckCircle, 4)
     )
 
-    Scaffold(
+    val drawerState = rememberDrawerState(initialValue = DrawerValue.Closed)
+    val drawerScope = rememberCoroutineScope()
+
+    ModalNavigationDrawer(
+        drawerState = drawerState,
+        gesturesEnabled = !imeVisible,
+        scrimColor = cs.scrim.copy(alpha = 0.34f),
+        drawerContent = {
+            ModalDrawerSheet(
+                modifier = Modifier.width(292.dp),
+                drawerShape = RoundedCornerShape(topEnd = 26.dp, bottomEnd = 26.dp),
+                drawerContainerColor = cs.surface,
+                drawerTonalElevation = 1.dp
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxHeight()
+                        .padding(horizontal = 14.dp)
+                ) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(start = 8.dp, top = 28.dp, end = 8.dp, bottom = 22.dp),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
+                        Surface(
+                            modifier = Modifier.size(44.dp),
+                            shape = RoundedCornerShape(15.dp),
+                            color = cs.primaryContainer
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text(
+                                    "Us",
+                                    color = cs.onPrimaryContainer,
+                                    style = MaterialTheme.typography.titleMedium,
+                                    fontWeight = FontWeight.Bold
+                                )
+                            }
+                        }
+                        Spacer(Modifier.width(12.dp))
+                        Column {
+                            Text(
+                                "Us",
+                                style = MaterialTheme.typography.titleLarge,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                "Your shared space",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = cs.onSurfaceVariant
+                            )
+                        }
+                    }
+
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        color = cs.outlineVariant.copy(alpha = 0.6f)
+                    )
+                    Text(
+                        "YOUR SPACE",
+                        modifier = Modifier.padding(start = 12.dp, top = 22.dp, bottom = 8.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = cs.onSurfaceVariant,
+                        letterSpacing = 1.2.sp
+                    )
+
+                    NavigationDrawerItem(
+                        label = { Text("Our Instant") },
+                        selected = tab == 8,
+                        onClick = {
+                            tab = 8
+                            drawerScope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Filled.Widgets, contentDescription = null) },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.padding(vertical = 3.dp)
+                    )
+                    NavigationDrawerItem(
+                        label = { Text("Our Map") },
+                        selected = tab == 7,
+                        onClick = {
+                            tab = 7
+                            drawerScope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Filled.Map, contentDescription = null) },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.padding(vertical = 3.dp)
+                    )
+                    NavigationDrawerItem(
+                        label = { Text("Settings") },
+                        selected = tab == 6,
+                        onClick = {
+                            tab = 6
+                            drawerScope.launch { drawerState.close() }
+                        },
+                        icon = { Icon(Icons.Filled.Settings, contentDescription = null) },
+                        shape = RoundedCornerShape(14.dp),
+                        modifier = Modifier.padding(vertical = 3.dp)
+                    )
+
+                    Spacer(Modifier.weight(1f))
+                    HorizontalDivider(
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                        color = cs.outlineVariant.copy(alpha = 0.6f)
+                    )
+                    Text(
+                        "A little space for two.",
+                        modifier = Modifier.padding(start = 12.dp, top = 14.dp, bottom = 24.dp),
+                        style = MaterialTheme.typography.labelSmall,
+                        color = cs.onSurfaceVariant
+                    )
+                }
+            }
+        }
+    ) {
+        Scaffold(
         containerColor = cs.background,
         snackbarHost = {
             SnackbarHost(hostState = snack) { data ->
@@ -825,11 +941,11 @@ fun HomeScreen(vm: MainVm) {
         topBar = {
             CenterAlignedTopAppBar(
                 navigationIcon = {
-                    IconButton(onClick = { tab = 8 }) {
+                    IconButton(onClick = { drawerScope.launch { drawerState.open() } }) {
                         Icon(
-                            Icons.Filled.Widgets,
-                            contentDescription = "Our Instant",
-                            tint = if (tab == 8) cs.primary else cs.onSurface
+                            Icons.Filled.Menu,
+                            contentDescription = "Open navigation menu",
+                            tint = cs.onSurface
                         )
                     }
                 },
@@ -857,25 +973,11 @@ fun HomeScreen(vm: MainVm) {
                     }
                 },
                 actions = {
-                    IconButton(onClick = { tab = 7 }) {
-                        Icon(
-                            Icons.Filled.Map,
-                            contentDescription = "Our map",
-                            tint = if (tab == 7) cs.primary else cs.onSurface
-                        )
-                    }
                     IconButton(onClick = { tab = 9 }) {
                         Icon(
                             Icons.AutoMirrored.Filled.Chat,
                             contentDescription = "Us Chat",
                             tint = if (tab == 9) cs.primary else cs.onSurface
-                        )
-                    }
-                    IconButton(onClick = { tab = 6 }) {
-                        Icon(
-                            Icons.Filled.Settings,
-                            contentDescription = "Settings",
-                            tint = if (tab == 6) cs.primary else cs.onSurface
                         )
                     }
                 },
@@ -1002,6 +1104,7 @@ fun HomeScreen(vm: MainVm) {
                     modifier = Modifier.align(Alignment.BottomCenter)
                 )
             }
+        }
         }
     }
 
