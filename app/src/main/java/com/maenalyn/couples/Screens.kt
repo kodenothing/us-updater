@@ -311,7 +311,7 @@ private fun qrBitmap(text: String, size: Int = 600): Bitmap {
 }
 
 @Composable
-fun InviteCard(code: String) {
+fun InviteCard(code: String, onCodeCopied: () -> Unit) {
     val bmp = remember(code) { qrBitmap(code).asImageBitmap() }
     val cs = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -357,7 +357,7 @@ fun InviteCard(code: String) {
                     clipboard?.setPrimaryClip(
                         android.content.ClipData.newPlainText("Us pairing code", code)
                     )
-                    vm.message.value = "Pairing code copied."
+                    onCodeCopied()
                 }
             ) {
                 Icon(Icons.Filled.ContentCopy, contentDescription = "Copy pairing code", tint = cs.primary)
@@ -551,7 +551,7 @@ private fun PairingInviteScreen(code: String, message: String?) {
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(24.dp))
-            InviteCard(code)
+            InviteCard(code) { vm.message.value = "Pairing code copied." }
             Spacer(Modifier.height(22.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
