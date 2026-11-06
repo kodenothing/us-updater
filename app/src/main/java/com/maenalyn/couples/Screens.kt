@@ -408,7 +408,9 @@ fun PairingFlowScreen(vm: MainVm, code: String) {
                     onRetry = vm::retryCoupleCheck,
                     onRestoreAccount = { showRestoreAccount = true }
                 )
-                PairingRouteState.WAITING -> PairingInviteScreen(code, message)
+                PairingRouteState.WAITING -> PairingInviteScreen(code, message) {
+                    vm.message.value = "Pairing code copied."
+                }
                 PairingRouteState.PAIRED -> HomeScreen(vm)
             }
         }
@@ -534,7 +536,7 @@ private fun PairingLoadingScreen() {
 }
 
 @Composable
-private fun PairingInviteScreen(code: String, message: String?) {
+private fun PairingInviteScreen(code: String, message: String?, onCodeCopied: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Box(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(cs.primaryContainer, cs.background)))
@@ -551,7 +553,7 @@ private fun PairingInviteScreen(code: String, message: String?) {
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(24.dp))
-            InviteCard(code) { vm.message.value = "Pairing code copied." }
+            InviteCard(code, onCodeCopied)
             Spacer(Modifier.height(22.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
