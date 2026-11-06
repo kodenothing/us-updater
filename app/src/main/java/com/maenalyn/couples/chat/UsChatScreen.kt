@@ -708,6 +708,7 @@ internal fun UsChatScreen(
                             timelineMessages.lastOrNull { candidate ->
                                 candidate.senderUid == currentUid &&
                                     candidate.deliveryState == null &&
+                                    !candidate.isDeleted &&
                                     cursor.lastReadMessageCreatedAt != null &&
                                     compareChatPosition(
                                         candidate.createdAt,
