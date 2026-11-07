@@ -627,6 +627,11 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
         updateAll(context)
     }
 
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        OurInstantWidgetDesigns.remove(context, appWidgetIds)
+        super.onDeleted(context, appWidgetIds)
+    }
+
     override fun onAppWidgetOptionsChanged(
         context: Context,
         manager: AppWidgetManager,
@@ -656,6 +661,12 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             updateAll(context, scheduleSync = false)
         }
 
+        fun updateWidget(context: Context, appWidgetId: Int) {
+            if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+            val manager = AppWidgetManager.getInstance(context)
+            updateOne(context, manager, appWidgetId)
+        }
+
         fun updateAll(context: Context, scheduleSync: Boolean = true) {
             val manager = AppWidgetManager.getInstance(context)
             val component = ComponentName(context, LivePhotoWidgetProvider::class.java)
@@ -682,7 +693,9 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
         }
 
         private fun updateOne(context: Context, manager: AppWidgetManager, id: Int) {
-            val views = RemoteViews(context.packageName, R.layout.widget_live_photo)
+            val style = OurInstantWidgetDesigns.load(context, id)
+            val layout = OurInstantWidgetDesigns.layoutFor(style)
+            val views = RemoteViews(context.packageName, layout)
             val cache = LivePhotoWidgetFiles.cache(context)
             val cachedId = LivePhotoWidgetFiles.preferences(context)
                 .getString("livePhotoWidgetCachedId", null)

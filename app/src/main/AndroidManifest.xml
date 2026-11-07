@@ -73,6 +73,16 @@
                 android:resource="@xml/days_together_widget_info" />
         </receiver>
         <activity
+            android:name=".LivePhotoWidgetConfigActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:label="Customize Our Instant"
+            android:theme="@android:style/Theme.Material.Light.NoActionBar">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_CONFIGURE" />
+            </intent-filter>
+        </activity>
+        <activity
             android:name=".PortraitCaptureActivity"
             android:exported="false"
             android:screenOrientation="portrait"
