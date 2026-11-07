@@ -95,10 +95,16 @@ import com.google.zxing.BarcodeFormat
 import com.google.zxing.qrcode.QRCodeWriter
 import com.journeyapps.barcodescanner.ScanContract
 import com.journeyapps.barcodescanner.ScanOptions
+import com.google.firebase.auth.FirebaseAuth
+import com.maenalyn.couples.chat.UsChatOutboxStore
+import com.maenalyn.couples.chat.UsChatRepository
 import com.maenalyn.couples.chat.UsChatScreen
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.roundToInt
 import java.time.LocalDate
 import java.time.Period
@@ -1789,6 +1795,7 @@ fun SettingsTab(
     val accountEmail by vm.accountEmail.collectAsState()
     val busy by vm.busy.collectAsState()
     val appLockEnabled by vm.appLockEnabled.collectAsState()
+    val coupleCode by vm.code.collectAsState()
     val context = LocalContext.current
     val lifecycleOwner = LocalLifecycleOwner.current
     var hasDndAccess by remember { mutableStateOf(UsNotifications.hasDndAccess(context)) }
@@ -1824,6 +1831,8 @@ fun SettingsTab(
     var updateRelease by remember { mutableStateOf<GithubReleaseInfo?>(null) }
     var downloadedUpdate by remember { mutableStateOf<java.io.File?>(null) }
     val updateScope = rememberCoroutineScope()
+    var showChatResetConfirm by remember { mutableStateOf(false) }
+    var chatResetBusy by remember { mutableStateOf(false) }
     val installedVersion = remember(context) { GithubAppUpdater.installedVersionName(context) }
     val createBackup = rememberLauncherForActivityResult(ActivityResultContracts.CreateDocument("application/octet-stream")) { uri ->
         if (uri != null) vm.exportBackup(uri, backupPassword)
@@ -1905,6 +1914,32 @@ fun SettingsTab(
                 enabled = !busy && sharedName.trim().isNotBlank() && sharedName.trim() != (couple?.coupleName ?: "Us 💜"),
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Save name") }
+        }
+
+        SettingsCard("Us Chat") {
+            Text(
+                "Clear the current message history for both of you and start with an empty conversation. Your partner's chat will switch automatically when they reconnect.",
+                color = cs.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+            Text(
+                "Messages waiting to send offline will not be carried into the new conversation.",
+                color = cs.onSurfaceVariant,
+                style = MaterialTheme.typography.bodySmall
+            )
+            OutlinedButton(
+                onClick = { showChatResetConfirm = true },
+                enabled = !chatResetBusy && !coupleCode.isNullOrBlank() && couple?.memberCount == 2,
+                colors = ButtonDefaults.outlinedButtonColors(contentColor = cs.error),
+                border = BorderStroke(1.dp, cs.error.copy(alpha = 0.7f)),
+                modifier = Modifier.fillMaxWidth()
+            ) {
+                if (chatResetBusy) {
+                    CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                    Spacer(Modifier.width(8.dp))
+                }
+                Text("Clear conversation & start new")
+            }
         }
 
         SettingsCard("Our story") {
@@ -2129,6 +2164,79 @@ fun SettingsTab(
         )
     }
 
+
+    if (showChatResetConfirm) {
+        AlertDialog(
+            onDismissRequest = { if (!chatResetBusy) showChatResetConfirm = false },
+            title = { Text("Start a new Us Chat conversation?") },
+            text = {
+                Text(
+                    "This clears the message contents for both of you and starts a fresh conversation. Your partner will switch to it automatically when connected. Messages still waiting in either phone's offline queue will be discarded. This cannot be undone from the app."
+                )
+            },
+            confirmButton = {
+                TextButton(
+                    enabled = !chatResetBusy,
+                    onClick = {
+                        val activeCoupleCode = coupleCode
+                        val activeUid = FirebaseAuth.getInstance().currentUser?.uid
+                        if (activeCoupleCode.isNullOrBlank() || activeUid.isNullOrBlank()) {
+                            vm.message.value = "Your paired account couldn't be verified. Reopen Us Chat and try again."
+                            showChatResetConfirm = false
+                            return@TextButton
+                        }
+
+                        chatResetBusy = true
+                        updateScope.launch {
+                            try {
+                                val room = UsChatRepository.findRoom(activeCoupleCode)
+                                UsChatRepository.resetConversation(room.id, activeUid)
+                                val updatedRoom = UsChatRepository.findRoom(activeCoupleCode)
+                                withContext(Dispatchers.IO) {
+                                    UsChatOutboxStore.deleteForOtherConversations(
+                                        context,
+                                        activeCoupleCode,
+                                        activeUid,
+                                        updatedRoom.activeConversationId
+                                    )
+                                    UsChatOutboxStore.cacheRoomMapping(
+                                        context,
+                                        activeCoupleCode,
+                                        activeUid,
+                                        updatedRoom.id,
+                                        updatedRoom.activeConversationId
+                                    )
+                                }
+                                vm.message.value = "A new Us Chat conversation has started for both of you."
+                                showChatResetConfirm = false
+                            } catch (cancelled: CancellationException) {
+                                throw cancelled
+                            } catch (failure: Exception) {
+                                vm.message.value = AppMessageText.forDisplay(
+                                    failure,
+                                    "Couldn't start a new conversation. Check your connection and try again."
+                                )
+                            } finally {
+                                chatResetBusy = false
+                            }
+                        }
+                    }
+                ) {
+                    if (chatResetBusy) {
+                        CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                        Spacer(Modifier.width(8.dp))
+                    }
+                    Text("Clear & start new")
+                }
+            },
+            dismissButton = {
+                TextButton(
+                    enabled = !chatResetBusy,
+                    onClick = { showChatResetConfirm = false }
+                ) { Text("Cancel") }
+            }
+        )
+    }
 
     if (showUpdateDialog) {
         val release = updateRelease
