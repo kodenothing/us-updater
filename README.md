@@ -14,11 +14,22 @@ The supplied toolchain is preserved:
 - Firebase BoM `33.4.0`
 - Gradle distribution `8.7`
 
-The Android app version is `2.4.1` (`versionCode = 14`).
+The next Android feature release is `2.6.0` (`versionCode = 24`), prepared from the merged v2.5.1–v2.6.0 feature work.
+
+### Included in the upcoming 2.6.0 release
+
+- Us Chat message controls: remove a message for yourself or for both partners, with deleted-message tombstones.
+- Shared conversation reset from Settings, with both phones switching to a fresh conversation.
+- Branded offline/error feedback and chat reliability improvements.
+- Correct front-camera image orientation and map/bottom-navigation layout polish.
+- Minimal hamburger navigation with Our Instant, Our Map, and Settings.
+- Four per-widget Our Instant photo styles: Soft corners, Fine outline, Polaroid, and Minimal.
+
+The release candidate still needs a release-signed build and final regression checks; see `RELEASE_NOTES_2.6.0.md` and `PRODUCTION_CHECKLIST.md`.
 
 ## Visual direction
 
-The interface uses a warm, editorial style: soft ivory/blush surfaces, lavender/rose/mint/peach/sky accents, rounded cards, generous spacing, quiet transitions, and original copy and components. Main navigation contains Home, Calendar, Notes, Memories, Lists, and Activity. Settings remains in the top app bar. The Home screen includes the days-together counter, next shared plan, Daily Us entry point, and shortcuts to the couple's spaces.
+The interface uses a warm, editorial style: soft ivory/blush surfaces, lavender/rose/mint/peach/sky accents, rounded cards, generous spacing, quiet transitions, and original copy and components. Main navigation contains Home, Calendar, Notes, Memories, Lists, and Activity. A compact hamburger drawer provides Our Instant, Our Map, and Settings, while Us Chat remains the right-side header action. The Home screen includes the days-together counter, next shared plan, Daily Us entry point, and shortcuts to the couple's spaces.
 
 ## Features
 
