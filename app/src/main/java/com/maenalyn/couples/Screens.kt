@@ -790,11 +790,11 @@ fun HomeScreen(vm: MainVm) {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = !imeVisible,
+        gesturesEnabled = false,
         scrimColor = cs.scrim.copy(alpha = 0.34f),
         drawerContent = {
             ModalDrawerSheet(
-                modifier = Modifier.width(292.dp),
+                modifier = Modifier.width(260.dp),
                 drawerShape = RoundedCornerShape(topEnd = 26.dp, bottomEnd = 26.dp),
                 drawerContainerColor = cs.surface,
                 drawerTonalElevation = 1.dp
