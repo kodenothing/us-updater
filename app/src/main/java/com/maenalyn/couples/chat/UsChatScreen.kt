@@ -91,6 +91,7 @@ internal fun UsChatScreen(
     val context = LocalContext.current.applicationContext
 
     var roomId by remember(coupleCode, currentUid) { mutableStateOf<String?>(null) }
+    var conversationId by remember(coupleCode, currentUid) { mutableStateOf<String?>(null) }
     var messages by remember(coupleCode, currentUid) { mutableStateOf<List<UsChatMessage>>(emptyList()) }
     var draft by remember { mutableStateOf("") }
     var loading by remember(coupleCode, currentUid) { mutableStateOf(true) }
@@ -132,22 +133,28 @@ internal fun UsChatScreen(
                     coupleCode,
                     currentUid
                 )
+                val cachedConversationId = UsChatOutboxStore.findCachedConversationId(
+                    context,
+                    coupleCode,
+                    currentUid
+                )
                 val savedOutbox = UsChatOutboxStore.listForCouple(
                     context,
                     coupleCode,
                     currentUid
                 )
-                cachedRoomId to savedOutbox
+                Triple(cachedRoomId, cachedConversationId, savedOutbox)
             }
             roomId = localState.first
-            outboxMessages = localState.second
+            conversationId = localState.second
+            outboxMessages = localState.third.filter {
+                it.roomId == localState.first &&
+                    it.conversationId == localState.second &&
+                    !localState.second.isNullOrBlank()
+            }
             localState.first?.let { cachedRoomId ->
                 hiddenMessageIds = context.loadCachedHiddenMessageIds(cachedRoomId, currentUid)
             }
-            // Re-enqueue older local messages before the user can add newer ones.
-            localState.second
-                .filter { it.status == UsChatOutboxStatus.PENDING }
-                .forEach { UsChatOutboxScheduler.enqueue(context, it) }
 
             val room = try {
                 UsChatRepository.findRoom(coupleCode)
@@ -155,37 +162,77 @@ internal fun UsChatScreen(
                 throw cancelled
             } catch (failure: Exception) {
                 val cachedRoomId = localState.first
-                if (cachedRoomId == null || context.hasValidatedInternet() && !AppMessageText.isConnectivityFailure(failure)) throw failure
+                val cachedConversationId = localState.second
+                if (cachedRoomId == null || cachedConversationId.isNullOrBlank() ||
+                    context.hasValidatedInternet() && !AppMessageText.isConnectivityFailure(failure)
+                ) throw failure
 
-                // The room was resolved during an earlier online session.
-                // Keep the local conversation usable while WorkManager waits
-                // for connectivity to return.
+                // Keep the cached generation usable offline. A worker validates
+                // this generation against the server before it can deliver.
+                localState.third
+                    .filter {
+                        it.roomId == cachedRoomId &&
+                            it.conversationId == cachedConversationId &&
+                            it.status == UsChatOutboxStatus.PENDING
+                    }
+                    .forEach { UsChatOutboxScheduler.enqueue(context, it) }
                 realtimeLabel = "Offline · messages will send when you reconnect"
                 error = null
                 return@LaunchedEffect
             }
 
+            val conversationChanged = conversationId != null &&
+                conversationId != room.activeConversationId
+            if (conversationChanged) {
+                messages = emptyList()
+                hasOlderMessages = false
+                hasInitialPage = false
+                hiddenMessageIds = emptySet()
+                listState.scrollToItem(0)
+            }
+            roomId = room.id
+            conversationId = room.activeConversationId
+
             withContext(Dispatchers.IO) {
+                UsChatOutboxStore.deleteForOtherConversations(
+                    context,
+                    coupleCode,
+                    currentUid,
+                    room.id,
+                    room.activeConversationId
+                )
                 UsChatOutboxStore.cacheRoomMapping(
                     context,
                     coupleCode,
                     currentUid,
-                    room.id
+                    room.id,
+                    room.activeConversationId
                 )
             }
-            roomId = room.id
 
-            val page = UsChatRepository.loadLatestMessages(room.id)
+            val page = UsChatRepository.loadLatestMessages(room.id, room.activeConversationId)
             messages = mergeChatTimeline(
-                current = if (hasInitialPage) messages else emptyList(),
+                current = if (hasInitialPage && !conversationChanged) messages else emptyList(),
                 incoming = page.messages
             )
-            if (!hasInitialPage) hasOlderMessages = page.hasMore
+            if (!hasInitialPage || conversationChanged) hasOlderMessages = page.hasMore
             val confirmedIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
             outboxMessages = withContext(Dispatchers.IO) {
-                UsChatOutboxStore.deleteConfirmed(context, room.id, confirmedIds)
-                UsChatOutboxStore.listForRoom(context, room.id, currentUid)
+                UsChatOutboxStore.deleteConfirmed(
+                    context,
+                    room.id,
+                    room.activeConversationId,
+                    confirmedIds
+                )
+                UsChatOutboxStore.listForRoom(
+                    context,
+                    room.id,
+                    room.activeConversationId,
+                    currentUid
+                )
             }
+            outboxMessages.filter { it.status == UsChatOutboxStatus.PENDING }
+                .forEach { UsChatOutboxScheduler.enqueue(context, it) }
             hasInitialPage = true
             hiddenMessageIds = (
                 UsChatRepository.loadHiddenMessageIds(room.id, currentUid) +
@@ -207,11 +254,17 @@ internal fun UsChatScreen(
         }
     }
 
-    LaunchedEffect(roomId, currentUid) {
+    LaunchedEffect(roomId, conversationId, currentUid) {
         val activeRoomId = roomId ?: return@LaunchedEffect
+        val activeConversationId = conversationId ?: return@LaunchedEffect
         while (isActive) {
             outboxMessages = withContext(Dispatchers.IO) {
-                UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+                UsChatOutboxStore.listForRoom(
+                    context,
+                    activeRoomId,
+                    activeConversationId,
+                    currentUid
+                )
             }
             delay(2_000L)
         }
@@ -240,20 +293,69 @@ internal fun UsChatScreen(
             table = "chat_room_reads"
             filter("room_id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
         }
+        val roomUpdateFlow = channel.postgresChangeFlow<PostgresAction.Update>(schema = "public") {
+            table = "chat_rooms"
+            filter("id", io.github.jan.supabase.postgrest.query.filter.FilterOperator.EQ, activeRoomId)
+        }
 
         var realtimeConnected = false
 
         suspend fun syncLatest() {
-            val page = UsChatRepository.loadLatestMessages(activeRoomId)
-            messages = mergeChatTimeline(messages, page.messages)
-            if (!hasInitialPage) {
+            val latestRoom = UsChatRepository.findRoom(coupleCode)
+            check(latestRoom.id == activeRoomId) {
+                "The Us Chat room changed. Refresh the conversation."
+            }
+            val activeConversationId = latestRoom.activeConversationId
+            val conversationChanged = conversationId != activeConversationId
+
+            if (conversationChanged) {
+                conversationId = activeConversationId
+                messages = emptyList()
+                hasOlderMessages = false
+                hasInitialPage = false
+                hiddenMessageIds = emptySet()
+                listState.scrollToItem(0)
+                withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.deleteForOtherConversations(
+                        context,
+                        coupleCode,
+                        currentUid,
+                        activeRoomId,
+                        activeConversationId
+                    )
+                    UsChatOutboxStore.cacheRoomMapping(
+                        context,
+                        coupleCode,
+                        currentUid,
+                        activeRoomId,
+                        activeConversationId
+                    )
+                }
+            }
+
+            val page = UsChatRepository.loadLatestMessages(activeRoomId, activeConversationId)
+            messages = mergeChatTimeline(
+                current = if (conversationChanged) emptyList() else messages,
+                incoming = page.messages
+            )
+            if (!hasInitialPage || conversationChanged) {
                 hasOlderMessages = page.hasMore
                 hasInitialPage = true
             }
             val confirmedIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
             outboxMessages = withContext(Dispatchers.IO) {
-                UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
-                UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+                UsChatOutboxStore.deleteConfirmed(
+                    context,
+                    activeRoomId,
+                    activeConversationId,
+                    confirmedIds
+                )
+                UsChatOutboxStore.listForRoom(
+                    context,
+                    activeRoomId,
+                    activeConversationId,
+                    currentUid
+                )
             }
             hiddenMessageIds = (
                 UsChatRepository.loadHiddenMessageIds(activeRoomId, currentUid) +
@@ -261,6 +363,28 @@ internal fun UsChatScreen(
                 )
             context.saveCachedHiddenMessageIds(activeRoomId, currentUid, hiddenMessageIds)
             readStates = UsChatRepository.loadReadStates(activeRoomId)
+        }
+
+        val roomUpdateCollector = launch {
+            roomUpdateFlow.collect {
+                try {
+                    syncLatest()
+                    realtimeLabel = "New conversation"
+                    error = null
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (failure: Exception) {
+                    if (!context.hasValidatedInternet() || AppMessageText.isConnectivityFailure(failure)) {
+                        realtimeLabel = "Offline · messages will sync when connected"
+                        error = null
+                    } else {
+                        error = AppMessageText.forDisplay(
+                            failure,
+                            "Couldn't switch to the new conversation. Refresh the chat."
+                        )
+                    }
+                }
+            }
         }
 
         val messageCollector = launch {
@@ -286,8 +410,13 @@ internal fun UsChatScreen(
                 try {
                     // Refresh every server message already loaded in this timeline,
                     // including older pages, so a tombstone appears immediately.
+                    val activeConversationId = conversationId ?: return@collect
                     val loadedIds = messages.map { it.id }
-                    val changedRows = UsChatRepository.loadMessagesByIds(activeRoomId, loadedIds)
+                    val changedRows = UsChatRepository.loadMessagesByIds(
+                        activeRoomId,
+                        activeConversationId,
+                        loadedIds
+                    )
                     messages = mergeChatTimeline(messages, changedRows)
                 } catch (cancelled: CancellationException) {
                     throw cancelled
@@ -408,6 +537,7 @@ internal fun UsChatScreen(
             readInsertCollector.cancel()
             readUpdateCollector.cancel()
             connectionCollector.cancel()
+            roomUpdateCollector.cancel()
             runCatching { supabase.realtime.removeChannel(channel) }
         }
     }
@@ -420,7 +550,7 @@ internal fun UsChatScreen(
 
     // Advance only to a server-confirmed message. The database migration
     // additionally prevents concurrent clients from regressing the cursor.
-    LaunchedEffect(roomId, currentUid, messages.lastOrNull()?.id) {
+    LaunchedEffect(roomId, conversationId, currentUid, messages.lastOrNull()?.id) {
         val activeRoomId = roomId ?: return@LaunchedEffect
         val latestServerMessage = messages.lastOrNull() ?: return@LaunchedEffect
         try {
@@ -448,14 +578,29 @@ internal fun UsChatScreen(
             try {
                 val previousTopId = messages.getOrNull(listState.firstVisibleItemIndex)?.id
                 val previousOffset = listState.firstVisibleItemScrollOffset
-                val olderPage = UsChatRepository.loadMessagesBefore(activeRoomId, cursor)
+                val activeConversationId = conversationId ?: return@launch
+                val olderPage = UsChatRepository.loadMessagesBefore(
+                    activeRoomId,
+                    activeConversationId,
+                    cursor
+                )
                 val updated = mergeChatTimeline(messages, olderPage.messages)
                 messages = updated
                 hasOlderMessages = olderPage.hasMore
                 val confirmedIds = olderPage.messages.mapNotNull { it.clientMessageId }.toSet()
                 outboxMessages = withContext(Dispatchers.IO) {
-                    UsChatOutboxStore.deleteConfirmed(context, activeRoomId, confirmedIds)
-                    UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+                    UsChatOutboxStore.deleteConfirmed(
+                        context,
+                        activeRoomId,
+                        activeConversationId,
+                        confirmedIds
+                    )
+                    UsChatOutboxStore.listForRoom(
+                        context,
+                        activeRoomId,
+                        activeConversationId,
+                        currentUid
+                    )
                 }
                 val anchorIndex = previousTopId?.let { id ->
                     updated.indexOfFirst { it.id == id }
@@ -478,7 +623,8 @@ internal fun UsChatScreen(
     fun sendDraft() {
         val body = draft.trim()
         val activeRoomId = roomId
-        if (body.isEmpty() || sending || activeRoomId == null) return
+        val activeConversationId = conversationId
+        if (body.isEmpty() || sending || activeRoomId == null || activeConversationId == null) return
         if (body.length > 4000) {
             error = "Messages must be 4,000 characters or fewer."
             return
@@ -494,6 +640,7 @@ internal fun UsChatScreen(
                     UsChatOutboxStore.insert(
                         context = context,
                         roomId = activeRoomId,
+                        conversationId = activeConversationId,
                         coupleCode = coupleCode,
                         senderUid = currentUid,
                         body = body,
@@ -503,7 +650,12 @@ internal fun UsChatScreen(
                 draft = ""
                 savedLocally = true
                 outboxMessages = withContext(Dispatchers.IO) {
-                    UsChatOutboxStore.listForRoom(context, activeRoomId, currentUid)
+                    UsChatOutboxStore.listForRoom(
+                        context,
+                        activeRoomId,
+                        activeConversationId,
+                        currentUid
+                    )
                 }
                 UsChatOutboxScheduler.enqueue(context, queued)
             } catch (cancelled: CancellationException) {
@@ -540,10 +692,15 @@ internal fun UsChatScreen(
 
     fun removeMessageForEveryone(messageId: String) {
         val activeRoomId = roomId ?: return
+        val activeConversationId = conversationId ?: return
         scope.launch {
             try {
                 UsChatRepository.removeMessageForEveryone(activeRoomId, messageId, currentUid)
-                val updated = UsChatRepository.loadMessagesByIds(activeRoomId, listOf(messageId))
+                val updated = UsChatRepository.loadMessagesByIds(
+                    activeRoomId,
+                    activeConversationId,
+                    listOf(messageId)
+                )
                 messages = mergeChatTimeline(messages, updated)
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -561,7 +718,12 @@ internal fun UsChatScreen(
                         ?: throw IllegalStateException("This failed message is no longer available to retry.")
                 }
                 outboxMessages = withContext(Dispatchers.IO) {
-                    UsChatOutboxStore.listForRoom(context, queued.roomId, currentUid)
+                    UsChatOutboxStore.listForRoom(
+                        context,
+                        queued.roomId,
+                        queued.conversationId,
+                        currentUid
+                    )
                 }
                 UsChatOutboxScheduler.enqueue(context, queued)
             } catch (cancelled: CancellationException) {
@@ -759,7 +921,7 @@ internal fun UsChatScreen(
                 Spacer(Modifier.width(8.dp))
                 FilledIconButton(
                     onClick = { sendDraft() },
-                    enabled = draft.isNotBlank() && !sending && roomId != null,
+                    enabled = draft.isNotBlank() && !sending && roomId != null && conversationId != null,
                     modifier = Modifier.size(48.dp)
                 ) {
                     if (sending) {

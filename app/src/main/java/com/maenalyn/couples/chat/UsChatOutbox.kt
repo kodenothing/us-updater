@@ -30,6 +30,7 @@ internal object UsChatOutboxStatus {
 internal data class UsChatOutboxEntry(
     val clientMessageId: String,
     val roomId: String,
+    val conversationId: String,
     val coupleCode: String?,
     val senderUid: String,
     val body: String,
@@ -63,6 +64,7 @@ internal object UsChatOutboxStore {
     fun insert(
         context: Context,
         roomId: String,
+        conversationId: String,
         coupleCode: String,
         senderUid: String,
         body: String,
@@ -77,6 +79,7 @@ internal object UsChatOutboxStore {
         val values = ContentValues().apply {
             put("client_message_id", clientMessageId)
             put("room_id", roomId)
+            put("conversation_id", conversationId)
             put("couple_code", coupleCode)
             put("sender_uid", senderUid)
             put("body", body)
@@ -113,13 +116,14 @@ internal object UsChatOutboxStore {
     fun listForRoom(
         context: Context,
         roomId: String,
+        conversationId: String,
         senderUid: String
     ): List<UsChatOutboxEntry> =
         database(context).query(
             TABLE,
             null,
-            "room_id = ? AND sender_uid = ?",
-            arrayOf(roomId, senderUid),
+            "room_id = ? AND conversation_id = ? AND sender_uid = ?",
+            arrayOf(roomId, conversationId, senderUid),
             null,
             null,
             "local_created_at_ms ASC, client_message_id ASC"
@@ -152,12 +156,14 @@ internal object UsChatOutboxStore {
         context: Context,
         coupleCode: String,
         senderUid: String,
-        roomId: String
+        roomId: String,
+        conversationId: String
     ) {
         val values = ContentValues().apply {
             put("couple_code", coupleCode)
             put("sender_uid", senderUid)
             put("room_id", roomId)
+            put("conversation_id", conversationId)
             put("updated_at_ms", System.currentTimeMillis())
         }
         database(context).insertWithOnConflict(
@@ -186,16 +192,53 @@ internal object UsChatOutboxStore {
             if (cursor.moveToFirst()) cursor.getString(0) else null
         }
 
+    fun findCachedConversationId(
+        context: Context,
+        coupleCode: String,
+        senderUid: String
+    ): String? =
+        database(context).query(
+            "us_chat_room_cache",
+            arrayOf("conversation_id"),
+            "couple_code = ? AND sender_uid = ?",
+            arrayOf(coupleCode, senderUid),
+            null,
+            null,
+            null,
+            "1"
+        ).use { cursor ->
+            if (cursor.moveToFirst()) cursor.getString(0) else null
+        }
+
+    fun deleteForOtherConversations(
+        context: Context,
+        coupleCode: String,
+        senderUid: String,
+        roomId: String,
+        activeConversationId: String
+    ) {
+        database(context).delete(
+            TABLE,
+            "sender_uid = ? AND (couple_code = ? OR room_id = ?) AND (conversation_id IS NULL OR conversation_id != ?)",
+            arrayOf(senderUid, coupleCode, roomId, activeConversationId)
+        )
+    }
+
+    fun deleteMessage(context: Context, clientMessageId: String) {
+        database(context).delete(TABLE, "client_message_id = ?", arrayOf(clientMessageId))
+    }
+
     fun listPending(
         context: Context,
         roomId: String,
+        conversationId: String,
         senderUid: String
     ): List<UsChatOutboxEntry> =
         database(context).query(
             TABLE,
             null,
-            "room_id = ? AND sender_uid = ? AND status = ?",
-            arrayOf(roomId, senderUid, UsChatOutboxStatus.PENDING),
+            "room_id = ? AND conversation_id = ? AND sender_uid = ? AND status = ?",
+            arrayOf(roomId, conversationId, senderUid, UsChatOutboxStatus.PENDING),
             null,
             null,
             "local_created_at_ms ASC, client_message_id ASC"
@@ -286,14 +329,15 @@ internal object UsChatOutboxStore {
     fun deleteConfirmed(
         context: Context,
         roomId: String,
+        conversationId: String,
         confirmedClientMessageIds: Set<String>
     ) {
         if (confirmedClientMessageIds.isEmpty()) return
 
         val placeholders = confirmedClientMessageIds.joinToString(",") { "?" }
-        val args = arrayOf(roomId) + confirmedClientMessageIds.toTypedArray()
+        val args = arrayOf(roomId, conversationId) + confirmedClientMessageIds.toTypedArray()
         database(context).execSQL(
-            "DELETE FROM $TABLE WHERE room_id = ? AND client_message_id IN ($placeholders)",
+            "DELETE FROM $TABLE WHERE room_id = ? AND conversation_id = ? AND client_message_id IN ($placeholders)",
             args
         )
     }
@@ -302,6 +346,7 @@ internal object UsChatOutboxStore {
         UsChatOutboxEntry(
             clientMessageId = getString(getColumnIndexOrThrow("client_message_id")),
             roomId = getString(getColumnIndexOrThrow("room_id")),
+            conversationId = getString(getColumnIndexOrThrow("conversation_id")).orEmpty(),
             coupleCode = getString(getColumnIndexOrThrow("couple_code")),
             senderUid = getString(getColumnIndexOrThrow("sender_uid")),
             body = getString(getColumnIndexOrThrow("body")),
@@ -318,7 +363,7 @@ private class UsChatOutboxDatabase(context: Context) : SQLiteOpenHelper(
     context,
     "us_chat_outbox.db",
     null,
-    2
+    3
 ) {
     override fun onCreate(db: SQLiteDatabase) {
         db.execSQL(
@@ -326,6 +371,7 @@ private class UsChatOutboxDatabase(context: Context) : SQLiteOpenHelper(
             CREATE TABLE us_chat_outbox (
                 client_message_id TEXT PRIMARY KEY NOT NULL,
                 room_id TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
                 couple_code TEXT NOT NULL,
                 sender_uid TEXT NOT NULL,
                 body TEXT NOT NULL CHECK(length(body) BETWEEN 1 AND 4000),
@@ -358,6 +404,14 @@ private class UsChatOutboxDatabase(context: Context) : SQLiteOpenHelper(
             )
             createRoomCacheTable(db)
         }
+        if (oldVersion < 3) {
+            db.execSQL("ALTER TABLE us_chat_outbox ADD COLUMN conversation_id TEXT")
+            // Version 1 creates a fresh room-cache table above, which already
+            // includes conversation_id. Version 2 has the original cache schema.
+            if (oldVersion >= 2) {
+                db.execSQL("ALTER TABLE us_chat_room_cache ADD COLUMN conversation_id TEXT")
+            }
+        }
     }
 
     private fun createRoomCacheTable(db: SQLiteDatabase) {
@@ -367,6 +421,7 @@ private class UsChatOutboxDatabase(context: Context) : SQLiteOpenHelper(
                 couple_code TEXT NOT NULL,
                 sender_uid TEXT NOT NULL,
                 room_id TEXT NOT NULL,
+                conversation_id TEXT NOT NULL,
                 updated_at_ms INTEGER NOT NULL,
                 PRIMARY KEY (couple_code, sender_uid)
             )
@@ -402,9 +457,14 @@ internal object UsChatOutboxScheduler {
             .enqueue()
     }
 
-    suspend fun enqueuePending(context: Context, roomId: String, senderUid: String) {
+    suspend fun enqueuePending(
+        context: Context,
+        roomId: String,
+        conversationId: String,
+        senderUid: String
+    ) {
         val pending = withContext(Dispatchers.IO) {
-            UsChatOutboxStore.listPending(context, roomId, senderUid)
+            UsChatOutboxStore.listPending(context, roomId, conversationId, senderUid)
         }
         pending.forEach { enqueue(context, it) }
     }
@@ -445,13 +505,23 @@ internal class UsChatSendWorker(
             return Result.success()
         }
 
-        withContext(Dispatchers.IO) {
-            UsChatOutboxStore.markSending(applicationContext, clientMessageId)
-        }
-
         return try {
+            // The generation is immutable on each queued row. A reset invalidates
+            // old rows, even if WorkManager wakes them much later.
+            if (!UsChatRepository.isConversationActive(entry.roomId, entry.conversationId)) {
+                withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.deleteMessage(applicationContext, clientMessageId)
+                }
+                return Result.success()
+            }
+
+            withContext(Dispatchers.IO) {
+                UsChatOutboxStore.markSending(applicationContext, clientMessageId)
+            }
+
             val confirmed = UsChatRepository.sendMessage(
                 roomId = entry.roomId,
+                conversationId = entry.conversationId,
                 senderUid = entry.senderUid,
                 body = entry.body,
                 clientMessageId = entry.clientMessageId
@@ -469,6 +539,16 @@ internal class UsChatSendWorker(
         } catch (cancelled: CancellationException) {
             throw cancelled
         } catch (failure: Exception) {
+            val stillActive = runCatching {
+                UsChatRepository.isConversationActive(entry.roomId, entry.conversationId)
+            }.getOrNull()
+            if (stillActive == false) {
+                withContext(Dispatchers.IO) {
+                    UsChatOutboxStore.deleteMessage(applicationContext, clientMessageId)
+                }
+                return Result.success()
+            }
+
             val reason = failure.message ?: "Message delivery failed."
             if (runAttemptCount + 1 < UsChatOutboxScheduler.maxAttempts()) {
                 withContext(Dispatchers.IO) {
@@ -479,7 +559,6 @@ internal class UsChatSendWorker(
                 withContext(Dispatchers.IO) {
                     UsChatOutboxStore.markFailed(applicationContext, clientMessageId, reason)
                 }
-                // Permanent item failure must not cancel the next room-queue item.
                 Result.success()
             }
         }

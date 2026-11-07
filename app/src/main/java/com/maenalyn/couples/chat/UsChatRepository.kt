@@ -12,7 +12,9 @@ import kotlinx.serialization.Serializable
 internal data class UsChatRoom(
     val id: String,
     @SerialName("firebase_couple_code")
-    val firebaseCoupleCode: String
+    val firebaseCoupleCode: String,
+    @SerialName("active_conversation_id")
+    val activeConversationId: String
 )
 
 @Serializable
@@ -20,6 +22,8 @@ internal data class UsChatMessage(
     val id: String,
     @SerialName("room_id")
     val roomId: String,
+    @SerialName("conversation_id")
+    val conversationId: String,
     @SerialName("sender_uid")
     val senderUid: String,
     @SerialName("message_type")
@@ -70,6 +74,12 @@ private data class UsChatMessageActionParams(
 )
 
 @Serializable
+private data class UsChatRoomResetParams(
+    @SerialName("p_room_id")
+    val roomId: String
+)
+
+@Serializable
 internal data class UsChatMessageHideRecord(
     @SerialName("room_id")
     val roomId: String,
@@ -95,6 +105,8 @@ private data class UsChatReadUpdate(
 private data class UsChatMessageInsert(
     @SerialName("room_id")
     val roomId: String,
+    @SerialName("conversation_id")
+    val conversationId: String,
     @SerialName("sender_uid")
     val senderUid: String,
     val body: String,
@@ -125,12 +137,35 @@ internal object UsChatRepository {
         return rooms.single()
     }
 
-    suspend fun loadLatestMessages(roomId: String): UsChatMessagePage {
+    suspend fun isConversationActive(roomId: String, conversationId: String): Boolean {
+        val rows = SupabaseChatClientProvider.get()
+            .from("chat_rooms")
+            .select {
+                filter { eq("id", roomId) }
+                limit(1)
+            }
+            .decodeList<UsChatRoom>()
+        return rows.singleOrNull()?.activeConversationId == conversationId
+    }
+
+    suspend fun resetConversation(roomId: String, actorUid: String) {
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+        check(!currentUid.isNullOrBlank() && currentUid == actorUid) {
+            "Your Firebase account changed. Reopen Settings before resetting Us Chat."
+        }
+        SupabaseChatClientProvider.get().postgrest.rpc(
+            "chat_reset_conversation",
+            UsChatRoomResetParams(roomId)
+        )
+    }
+
+    suspend fun loadLatestMessages(roomId: String, conversationId: String): UsChatMessagePage {
         val rows = SupabaseChatClientProvider.get()
             .from("chat_messages")
             .select {
                 filter {
                     eq("room_id", roomId)
+                    eq("conversation_id", conversationId)
                 }
                 order(column = "created_at", order = Order.DESCENDING)
                 order(column = "id", order = Order.DESCENDING)
@@ -151,6 +186,7 @@ internal object UsChatRepository {
      */
     suspend fun loadMessagesBefore(
         roomId: String,
+        conversationId: String,
         before: UsChatMessage
     ): UsChatMessagePage {
         val rows = SupabaseChatClientProvider.get()
@@ -158,6 +194,7 @@ internal object UsChatRepository {
             .select {
                 filter {
                     eq("room_id", roomId)
+                    eq("conversation_id", conversationId)
                     or {
                         lt("created_at", before.createdAt)
                         and {
@@ -181,6 +218,7 @@ internal object UsChatRepository {
 
     suspend fun loadMessagesByIds(
         roomId: String,
+        conversationId: String,
         messageIds: Collection<String>
     ): List<UsChatMessage> {
         if (messageIds.isEmpty()) return emptyList()
@@ -191,6 +229,7 @@ internal object UsChatRepository {
                 .select {
                     filter {
                         eq("room_id", roomId)
+                        eq("conversation_id", conversationId)
                         isIn("id", batch)
                     }
                 }
@@ -333,6 +372,7 @@ internal object UsChatRepository {
      */
     suspend fun sendMessage(
         roomId: String,
+        conversationId: String,
         senderUid: String,
         body: String,
         clientMessageId: String
@@ -352,6 +392,7 @@ internal object UsChatRepository {
         client.from("chat_messages").upsert(
             UsChatMessageInsert(
                 roomId = roomId,
+                conversationId = conversationId,
                 senderUid = senderUid,
                 body = normalizedBody,
                 clientMessageId = clientMessageId
@@ -365,6 +406,7 @@ internal object UsChatRepository {
             .select {
                 filter {
                     eq("room_id", roomId)
+                    eq("conversation_id", conversationId)
                     eq("sender_uid", senderUid)
                     eq("client_message_id", clientMessageId)
                 }
