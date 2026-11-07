@@ -5,7 +5,6 @@ import android.net.Uri
 import android.graphics.Color as AColor
 import android.os.Build
 import android.Manifest
-import android.widget.Toast
 import android.content.pm.PackageManager
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -57,6 +56,7 @@ import androidx.compose.material.icons.filled.Home
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.filled.Star
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.lifecycle.Lifecycle
@@ -213,7 +213,7 @@ fun PairingScreen(vm: MainVm) {
                 CircularProgressIndicator(strokeWidth = 3.dp)
             }
             msg?.let {
-                Text(it, color = cs.error, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp))
+                Text(AppMessageText.forDisplay(it), color = if (it == "Pairing code copied.") cs.primary else cs.error, textAlign = TextAlign.Center, modifier = Modifier.padding(top = 12.dp))
             }
         }
     }
@@ -311,7 +311,7 @@ private fun qrBitmap(text: String, size: Int = 600): Bitmap {
 }
 
 @Composable
-fun InviteCard(code: String) {
+fun InviteCard(code: String, onCodeCopied: () -> Unit) {
     val bmp = remember(code) { qrBitmap(code).asImageBitmap() }
     val cs = MaterialTheme.colorScheme
     val context = LocalContext.current
@@ -357,7 +357,7 @@ fun InviteCard(code: String) {
                     clipboard?.setPrimaryClip(
                         android.content.ClipData.newPlainText("Us pairing code", code)
                     )
-                    Toast.makeText(context, "Code copied", Toast.LENGTH_SHORT).show()
+                    onCodeCopied()
                 }
             ) {
                 Icon(Icons.Filled.ContentCopy, contentDescription = "Copy pairing code", tint = cs.primary)
@@ -408,7 +408,9 @@ fun PairingFlowScreen(vm: MainVm, code: String) {
                     onRetry = vm::retryCoupleCheck,
                     onRestoreAccount = { showRestoreAccount = true }
                 )
-                PairingRouteState.WAITING -> PairingInviteScreen(code, message)
+                PairingRouteState.WAITING -> PairingInviteScreen(code, message) {
+                    vm.message.value = "Pairing code copied."
+                }
                 PairingRouteState.PAIRED -> HomeScreen(vm)
             }
         }
@@ -534,7 +536,7 @@ private fun PairingLoadingScreen() {
 }
 
 @Composable
-private fun PairingInviteScreen(code: String, message: String?) {
+private fun PairingInviteScreen(code: String, message: String?, onCodeCopied: () -> Unit) {
     val cs = MaterialTheme.colorScheme
     Box(
         Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(cs.primaryContainer, cs.background)))
@@ -551,7 +553,7 @@ private fun PairingInviteScreen(code: String, message: String?) {
                 fontWeight = FontWeight.Bold
             )
             Spacer(Modifier.height(24.dp))
-            InviteCard(code)
+            InviteCard(code, onCodeCopied)
             Spacer(Modifier.height(22.dp))
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -571,7 +573,7 @@ private fun PairingInviteScreen(code: String, message: String?) {
             }
             message?.let {
                 Text(
-                    it,
+                    AppMessageText.forDisplay(it),
                     color = cs.error,
                     textAlign = TextAlign.Center,
                     style = MaterialTheme.typography.bodySmall,
@@ -600,7 +602,8 @@ fun HomeScreen(vm: MainVm) {
     val savedPlaces by vm.savedPlaces.collectAsState()
     val placeAlertsEnabled by vm.placeAlertsEnabled.collectAsState()
     val currentUid = Repo.currentUid()
-    val partnerName = couple?.memberNames?.entries?.firstOrNull { it.key != currentUid }?.value.orEmpty().ifBlank { "your person" }
+    val partnerName = couple?.memberNames?.entries?.firstOrNull { it.key != currentUid }?.value.orEmpty().ifBlank { "Partner" }
+    val myNickname by vm.myNickname.collectAsState()
     val dailyUs by vm.dailyUs.collectAsState()
     val busy by vm.busy.collectAsState()
     val appLockEnabled by vm.appLockEnabled.collectAsState()
@@ -767,7 +770,12 @@ fun HomeScreen(vm: MainVm) {
     val snack = remember { SnackbarHostState() }
     val cs = MaterialTheme.colorScheme
     val imeVisible = WindowInsets.ime.getBottom(LocalDensity.current) > 0
-    LaunchedEffect(msg) { msg?.let { snack.showSnackbar(it); vm.message.value = null } }
+    LaunchedEffect(msg) {
+        msg?.let {
+            snack.showSnackbar(AppMessageText.forDisplay(it))
+            if (vm.message.value == it) vm.message.value = null
+        }
+    }
 
     val tabs = listOf(
         Triple("Calendar", Icons.Filled.CalendarMonth, 1),
@@ -778,7 +786,42 @@ fun HomeScreen(vm: MainVm) {
 
     Scaffold(
         containerColor = cs.background,
-        snackbarHost = { SnackbarHost(snack) },
+        snackbarHost = {
+            SnackbarHost(hostState = snack) { data ->
+                Surface(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 16.dp, vertical = 8.dp),
+                    shape = RoundedCornerShape(18.dp),
+                    color = cs.inverseSurface,
+                    contentColor = cs.inverseOnSurface,
+                    shadowElevation = 8.dp
+                ) {
+                    Row(
+                        modifier = Modifier.padding(start = 14.dp, end = 6.dp, top = 10.dp, bottom = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Surface(
+                            shape = CircleShape,
+                            color = cs.inverseOnSurface.copy(alpha = 0.14f),
+                            modifier = Modifier.size(30.dp)
+                        ) {
+                            Box(contentAlignment = Alignment.Center) {
+                                Text("Us", fontSize = 10.sp, fontWeight = FontWeight.Bold, color = cs.inverseOnSurface)
+                            }
+                        }
+                        Text(
+                            data.visuals.message,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyMedium,
+                            maxLines = 3
+                        )
+                        IconButton(onClick = { data.dismiss() }) {
+                            Icon(Icons.Filled.Close, contentDescription = "Dismiss message", tint = cs.inverseOnSurface)
+                        }
+                    }
+                }
+            }
+        },
         topBar = {
             CenterAlignedTopAppBar(
                 navigationIcon = {
@@ -934,7 +977,7 @@ fun HomeScreen(vm: MainVm) {
                             vm.setKeepLocationSharingInBackground(true)
                         }
                     },
-                    modifier = Modifier.padding(pad)
+                    modifier = Modifier.padding(screenPad)
                 )
                 8 -> OurInstantTab(
                     code = vm.code.value.orEmpty(),
@@ -945,6 +988,7 @@ fun HomeScreen(vm: MainVm) {
                     coupleCode = vm.code.value.orEmpty(),
                     currentUid = currentUid.orEmpty(),
                     partnerName = partnerName,
+                    myNickname = myNickname,
                     modifier = Modifier.padding(screenPad)
                 )
                 else -> SettingsTab(vm, couple, { confirm = true }, screenPad)
@@ -1066,38 +1110,48 @@ private fun UsBottomNavigationBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(bottom = 12.dp)
+            .padding(horizontal = 12.dp)
+            .padding(bottom = 10.dp)
             .height(90.dp)
     ) {
-        Row(
+        Surface(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .fillMaxWidth()
-                .padding(horizontal = 14.dp)
-                .height(62.dp),
-            verticalAlignment = Alignment.CenterVertically
+                .height(64.dp),
+            shape = RoundedCornerShape(26.dp),
+            color = cs.surfaceContainerLow,
+            tonalElevation = 2.dp,
+            shadowElevation = 6.dp
         ) {
-            Row(Modifier.weight(1f).fillMaxHeight()) {
-                leftTabs.forEach { (label, icon, destination) ->
-                    UsNavigationIcon(
-                        label = label,
-                        icon = icon,
-                        selected = selectedTab == destination,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onTabSelected(destination) }
-                    )
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 6.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(Modifier.weight(1f).fillMaxHeight()) {
+                    leftTabs.forEach { (label, icon, destination) ->
+                        UsNavigationIcon(
+                            label = label,
+                            icon = icon,
+                            selected = selectedTab == destination,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onTabSelected(destination) }
+                        )
+                    }
                 }
-            }
-            Spacer(Modifier.width(68.dp))
-            Row(Modifier.weight(1f).fillMaxHeight()) {
-                rightTabs.forEach { (label, icon, destination) ->
-                    UsNavigationIcon(
-                        label = label,
-                        icon = icon,
-                        selected = selectedTab == destination,
-                        modifier = Modifier.weight(1f),
-                        onClick = { onTabSelected(destination) }
-                    )
+                Spacer(Modifier.width(68.dp))
+                Row(Modifier.weight(1f).fillMaxHeight()) {
+                    rightTabs.forEach { (label, icon, destination) ->
+                        UsNavigationIcon(
+                            label = label,
+                            icon = icon,
+                            selected = selectedTab == destination,
+                            modifier = Modifier.weight(1f),
+                            onClick = { onTabSelected(destination) }
+                        )
+                    }
                 }
             }
         }
@@ -1777,7 +1831,7 @@ fun SettingsTab(
                     else androidx.biometric.BiometricManager.Authenticators.BIOMETRIC_WEAK
                     val canUse = androidx.biometric.BiometricManager.from(context).canAuthenticate(authenticators) == androidx.biometric.BiometricManager.BIOMETRIC_SUCCESS
                     if (canUse) vm.setAppLock(true)
-                    else Toast.makeText(context, "Set up a fingerprint, face unlock, or device screen lock first.", Toast.LENGTH_LONG).show()
+                    else vm.message.value = "Set up a fingerprint, face unlock, or device screen lock first."
                 }
             }
         }
@@ -1800,7 +1854,7 @@ fun SettingsTab(
                 UsNotifications.createChannels(context)
                 if (enabled && !hasDndAccess) {
                     val opened = UsNotifications.openDndAccessSettings(context)
-                    if (!opened) Toast.makeText(context, "Could not open Do Not Disturb access settings.", Toast.LENGTH_LONG).show()
+                    if (!opened) vm.message.value = "Could not open Do Not Disturb access settings. You can enable it in Android Settings."
                 }
             }
             Text(
@@ -1816,7 +1870,7 @@ fun SettingsTab(
                 OutlinedButton(
                     onClick = {
                         val opened = UsNotifications.openDndAccessSettings(context)
-                        if (!opened) Toast.makeText(context, "Could not open Do Not Disturb access settings.", Toast.LENGTH_LONG).show()
+                        if (!opened) vm.message.value = "Could not open Do Not Disturb access settings. You can enable it in Android Settings."
                     },
                     modifier = Modifier.fillMaxWidth()
                 ) { Text("Grant Do Not Disturb access") }
@@ -1825,7 +1879,7 @@ fun SettingsTab(
                 OutlinedButton(
                     onClick = {
                         if (!androidx.core.app.NotificationManagerCompat.from(context).areNotificationsEnabled()) {
-                            Toast.makeText(context, "Enable Us notifications in Android settings first.", Toast.LENGTH_LONG).show()
+                            vm.message.value = "Enable Us notifications in Android Settings first."
                         } else {
                             UsNotifications.show(
                                 context,
@@ -1867,7 +1921,7 @@ fun SettingsTab(
                 val intent = android.content.Intent(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)
                     .putExtra(android.provider.Settings.EXTRA_APP_PACKAGE, context.packageName)
                 runCatching { context.startActivity(intent) }
-                    .onFailure { Toast.makeText(context, "Open Android notification settings.", Toast.LENGTH_LONG).show() }
+                    .onFailure { vm.message.value = "Could not open Android notification settings. Open them from your phone Settings." }
             }, modifier = Modifier.fillMaxWidth()) {
                 Text("Notification settings")
             }
@@ -1905,7 +1959,7 @@ fun SettingsTab(
                                 }
                             } catch (error: Exception) {
                                 updateDialogState = "error"
-                                updateMessage = error.message ?: "Couldn't check for updates. Please try again."
+                                updateMessage = AppMessageText.forDisplay(error, "Couldn't check for updates. Please try again.")
                             } finally {
                                 updateBusy = false
                             }
@@ -2046,7 +2100,7 @@ fun SettingsTab(
                                     }
                                 } catch (error: Exception) {
                                     updateDialogState = "error"
-                                    updateMessage = error.message ?: "Couldn't download the update. Please try again."
+                                    updateMessage = AppMessageText.forDisplay(error, "Couldn't download the update. Please try again.")
                                 } finally {
                                     updateBusy = false
                                 }
@@ -2062,7 +2116,7 @@ fun SettingsTab(
                                 else updateMessage = "Allow Us to install unknown apps, then tap Install again."
                             }.onFailure {
                                 updateDialogState = "error"
-                                updateMessage = it.message ?: "Couldn't open Android's installer."
+                                updateMessage = AppMessageText.forDisplay(it, "Couldn't open Android's installer.")
                             }
                         }
                     ) { Text("Install") }

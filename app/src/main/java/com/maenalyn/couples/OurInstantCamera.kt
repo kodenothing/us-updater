@@ -203,7 +203,8 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
                         scope.launch {
                             try {
                                 LivePhotoWidgetUploadScheduler.enqueueFromUri(
-                                    context, code, uid, photoUri
+                                    context, code, uid, photoUri,
+                                    mirrorFrontCamera = useFrontCamera
                                 )
                                 feedback = "Captured! Sharing with your person…"
                             } catch (error: Exception) {

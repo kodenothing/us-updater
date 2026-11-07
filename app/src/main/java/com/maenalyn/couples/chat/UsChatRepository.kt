@@ -2,6 +2,8 @@ package com.maenalyn.couples.chat
 
 import com.google.firebase.auth.FirebaseAuth
 import io.github.jan.supabase.postgrest.from
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import io.github.jan.supabase.postgrest.query.Order
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
@@ -26,7 +28,11 @@ internal data class UsChatMessage(
     @SerialName("created_at")
     val createdAt: String,
     @SerialName("client_message_id")
-    val clientMessageId: String? = null
+    val clientMessageId: String? = null,
+    @SerialName("deleted_at")
+    val deletedAt: String? = null,
+    @SerialName("deleted_by_uid")
+    val deletedByUid: String? = null
 )
 
 internal data class UsChatMessagePage(
@@ -52,6 +58,25 @@ internal data class UsChatReadState(
     val lastReadMessageId: String?,
     val lastReadMessageCreatedAt: String?,
     val lastReadAt: String
+)
+
+
+@Serializable
+private data class UsChatMessageActionParams(
+    @SerialName("p_room_id")
+    val roomId: String,
+    @SerialName("p_message_id")
+    val messageId: String
+)
+
+@Serializable
+internal data class UsChatMessageHideRecord(
+    @SerialName("room_id")
+    val roomId: String,
+    @SerialName("message_id")
+    val messageId: String,
+    @SerialName("hidden_by_uid")
+    val hiddenByUid: String
 )
 
 @Serializable
@@ -151,6 +176,78 @@ internal object UsChatRepository {
         return UsChatMessagePage(
             messages = rows.take(MESSAGE_PAGE_SIZE).reversed(),
             hasMore = hasMore
+        )
+    }
+
+    suspend fun loadMessagesByIds(
+        roomId: String,
+        messageIds: Collection<String>
+    ): List<UsChatMessage> {
+        if (messageIds.isEmpty()) return emptyList()
+
+        val client = SupabaseChatClientProvider.get()
+        return messageIds.distinct().chunked(100).flatMap { batch ->
+            client.from("chat_messages")
+                .select {
+                    filter {
+                        eq("room_id", roomId)
+                        isIn("id", batch)
+                    }
+                }
+                .decodeList<UsChatMessage>()
+        }
+    }
+
+    suspend fun loadHiddenMessageIds(
+        roomId: String,
+        readerUid: String
+    ): Set<String> {
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+        check(!currentUid.isNullOrBlank() && currentUid == readerUid) {
+            "Your Firebase account changed. Reopen Us Chat to refresh this conversation."
+        }
+
+        return SupabaseChatClientProvider.get()
+            .from("chat_message_user_hides")
+            .select {
+                filter {
+                    eq("room_id", roomId)
+                    eq("hidden_by_uid", readerUid)
+                }
+            }
+            .decodeList<UsChatMessageHideRecord>()
+            .mapTo(mutableSetOf()) { it.messageId }
+    }
+
+    suspend fun removeMessageForMe(
+        roomId: String,
+        messageId: String,
+        readerUid: String
+    ) {
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+        check(!currentUid.isNullOrBlank() && currentUid == readerUid) {
+            "Your Firebase account changed. Reopen Us Chat before removing this message."
+        }
+
+        SupabaseChatClientProvider.get().postgrest.rpc(
+            "chat_hide_message_for_me",
+            UsChatMessageActionParams(roomId, messageId)
+        )
+    }
+
+    suspend fun removeMessageForEveryone(
+        roomId: String,
+        messageId: String,
+        senderUid: String
+    ) {
+        val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+        check(!currentUid.isNullOrBlank() && currentUid == senderUid) {
+            "Only the account that sent this message can remove it for everyone."
+        }
+
+        SupabaseChatClientProvider.get().postgrest.rpc(
+            "chat_remove_message_for_everyone",
+            UsChatMessageActionParams(roomId, messageId)
         )
     }
 

@@ -218,11 +218,17 @@ object LivePhotoWidgetRepo {
 }
 
 object LivePhotoWidgetUploadScheduler {
-    suspend fun enqueueFromUri(context: Context, code: String, uid: String, uri: Uri): String {
+    suspend fun enqueueFromUri(
+        context: Context,
+        code: String,
+        uid: String,
+        uri: Uri,
+        mirrorFrontCamera: Boolean = false
+    ): String {
         val id = UUID.randomUUID().toString()
         val file = File(LivePhotoWidgetFiles.uploads(context).apply { mkdirs() }, "$id.jpg")
         try {
-            compressPhoto(context, uri, file)
+            compressPhoto(context, uri, file, mirrorFrontCamera)
         } catch (error: Exception) {
             file.delete()
             throw error
@@ -257,7 +263,12 @@ object LivePhotoWidgetUploadScheduler {
         return id
     }
 
-    private suspend fun compressPhoto(context: Context, uri: Uri, destination: File) = withContext(Dispatchers.IO) {
+    private suspend fun compressPhoto(
+        context: Context,
+        uri: Uri,
+        destination: File,
+        mirrorHorizontally: Boolean
+    ) = withContext(Dispatchers.IO) {
         val resolver = context.contentResolver
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         resolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it, null, bounds) }
@@ -289,6 +300,19 @@ object LivePhotoWidgetUploadScheduler {
                 )
                 bitmap.recycle()
                 bitmap = rotated
+            }
+            // CameraX mirrors the front-camera preview, but saved files are not
+            // guaranteed to be mirrored. Flip the processed copy so the shared
+            // widget matches what the person saw in the selfie preview.
+            if (mirrorHorizontally) {
+                val mirrorMatrix = Matrix().apply { setScale(-1f, 1f) }
+                val mirrored = Bitmap.createBitmap(
+                    bitmap, 0, 0, bitmap.width, bitmap.height, mirrorMatrix, true
+                )
+                if (mirrored !== bitmap) {
+                    bitmap.recycle()
+                    bitmap = mirrored
+                }
             }
             if (maxOf(bitmap.width, bitmap.height) > 1600) {
                 val ratio = 1600f / maxOf(bitmap.width, bitmap.height)
