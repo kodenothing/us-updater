@@ -214,12 +214,13 @@ internal object UsChatOutboxStore {
         context: Context,
         coupleCode: String,
         senderUid: String,
+        roomId: String,
         activeConversationId: String
     ) {
         database(context).delete(
             TABLE,
-            "couple_code = ? AND sender_uid = ? AND (conversation_id IS NULL OR conversation_id != ?)",
-            arrayOf(coupleCode, senderUid, activeConversationId)
+            "sender_uid = ? AND (couple_code = ? OR room_id = ?) AND (conversation_id IS NULL OR conversation_id != ?)",
+            arrayOf(senderUid, coupleCode, roomId, activeConversationId)
         )
     }
 

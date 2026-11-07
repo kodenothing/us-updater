@@ -198,6 +198,7 @@ internal fun UsChatScreen(
                     context,
                     coupleCode,
                     currentUid,
+                    room.id,
                     room.activeConversationId
                 )
                 UsChatOutboxStore.cacheRoomMapping(
@@ -319,6 +320,7 @@ internal fun UsChatScreen(
                         context,
                         coupleCode,
                         currentUid,
+                        activeRoomId,
                         activeConversationId
                     )
                     UsChatOutboxStore.cacheRoomMapping(
@@ -919,7 +921,7 @@ internal fun UsChatScreen(
                 Spacer(Modifier.width(8.dp))
                 FilledIconButton(
                     onClick = { sendDraft() },
-                    enabled = draft.isNotBlank() && !sending && roomId != null,
+                    enabled = draft.isNotBlank() && !sending && roomId != null && conversationId != null,
                     modifier = Modifier.size(48.dp)
                 ) {
                     if (sending) {

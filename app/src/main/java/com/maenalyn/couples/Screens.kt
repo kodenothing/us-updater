@@ -2197,6 +2197,7 @@ fun SettingsTab(
                                         context,
                                         activeCoupleCode,
                                         activeUid,
+                                        updatedRoom.id,
                                         updatedRoom.activeConversationId
                                     )
                                     UsChatOutboxStore.cacheRoomMapping(
