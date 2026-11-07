@@ -790,7 +790,7 @@ fun HomeScreen(vm: MainVm) {
 
     ModalNavigationDrawer(
         drawerState = drawerState,
-        gesturesEnabled = false,
+        gesturesEnabled = drawerState.isOpen && !imeVisible,
         scrimColor = cs.scrim.copy(alpha = 0.34f),
         drawerContent = {
             ModalDrawerSheet(
