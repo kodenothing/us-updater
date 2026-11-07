@@ -63,6 +63,12 @@ class LivePhotoWidgetConfigActivity : ComponentActivity() {
             return
         }
 
+        // Keep cancellation as the safe default unless the user confirms a design.
+        setResult(
+            Activity.RESULT_CANCELED,
+            Intent().putExtra(AppWidgetManager.EXTRA_APPWIDGET_ID, appWidgetId)
+        )
+
         setContent {
             val widgetPreferences = getSharedPreferences("us", MODE_PRIVATE)
             val paletteIndex = widgetPreferences.getInt("palette", 0)
@@ -73,10 +79,9 @@ class LivePhotoWidgetConfigActivity : ComponentActivity() {
             }
             UsTheme(dark = dark, paletteIndex = paletteIndex) {
                 var selected by remember {
-                    mutableStateOf(OurInstantWidgetDesigns.load(this, appWidgetId))
+                    mutableStateOf(OurInstantWidgetDesigns.load(this@LivePhotoWidgetConfigActivity, appWidgetId))
                 }
                 BackHandler {
-                    setResult(Activity.RESULT_CANCELED)
                     finish()
                 }
 
@@ -130,7 +135,6 @@ class LivePhotoWidgetConfigActivity : ComponentActivity() {
                         }
                         OutlinedButton(
                             onClick = {
-                                setResult(Activity.RESULT_CANCELED)
                                 finish()
                             },
                             modifier = Modifier.fillMaxWidth()
