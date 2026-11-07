@@ -342,7 +342,7 @@ internal fun UsChatScreen(
                 hasOlderMessages = page.hasMore
                 hasInitialPage = true
             }
-            val confirmedIds = page.messages.mapNotNull { it.clientMessageId }
+            val confirmedIds = page.messages.mapNotNull { it.clientMessageId }.toSet()
             outboxMessages = withContext(Dispatchers.IO) {
                 UsChatOutboxStore.deleteConfirmed(
                     context,
