@@ -1,4 +1,4 @@
-# Us 2.4.1 — Production checklist
+# Us 2.6.0 — Production checklist
 
 Complete these steps before enforcing App Check or distributing the release build.
 
@@ -74,7 +74,7 @@ Complete these steps before enforcing App Check or distributing the release buil
 ## 6. Release build
 
 - [ ] Build the release APK/AAB in Android Studio with the intended signing config.
-- [ ] Check the generated artifact's package name and version (`com.maenalyn.couples`, version `2.4.1`, code `14`).
+- [ ] Check the generated artifact's package name and version (`com.maenalyn.couples`, version `2.6.0`, code `24`).
 - [ ] Confirm the release variant uses the Play Integrity App Check provider, not the debug provider.
 - [ ] Install and test the actual release-signed package on a clean device.
 - [ ] Verify account recovery, pairing, photo compression, memory paging, Daily Us privacy, Activity Center, notification permissions, biometric lock, and widget behavior.
