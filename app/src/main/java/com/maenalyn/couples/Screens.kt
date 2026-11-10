@@ -1,7 +1,5 @@
 package com.maenalyn.couples
 
-private const val MEMBER_GENDER_UNSPECIFIED = "unspecified"
-
 import android.graphics.Bitmap
 import android.net.Uri
 import android.graphics.Color as AColor
@@ -1912,7 +1910,7 @@ fun SettingsTab(
                 listOf(
                     "male" to "Male",
                     "female" to "Female",
-                    MEMBER_GENDER_UNSPECIFIED to "Not set"
+                    "unspecified" to "Not set"
                 ).forEach { (value, label) ->
                     FilterChip(
                         selected = gender == value,
