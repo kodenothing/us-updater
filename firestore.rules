@@ -78,6 +78,14 @@ service cloud.firestore {
             )
             ||
             (
+              request.resource.data.diff(resource.data).affectedKeys().hasOnly(['memberGenders'])
+              && request.resource.data.memberGenders is map
+              && request.resource.data.memberGenders.keys().hasOnly(resource.data.members)
+              && request.resource.data.memberGenders.diff(resource.data.get('memberGenders', {})).affectedKeys().hasOnly([request.auth.uid])
+              && request.resource.data.memberGenders[request.auth.uid] in ['male', 'female', 'unspecified']
+            )
+            ||
+            (
               request.resource.data.diff(resource.data).affectedKeys().hasOnly(['deleteApprovals'])
               && request.resource.data.deleteApprovals is map
               && request.resource.data.deleteApprovals.keys().hasOnly(resource.data.members)
