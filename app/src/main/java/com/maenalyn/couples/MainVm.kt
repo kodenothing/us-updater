@@ -1,8 +1,5 @@
 package com.maenalyn.couples
 
-private const val MEMBER_GENDER_UNSPECIFIED = "unspecified"
-private val MEMBER_GENDER_VALUES = setOf("male", "female", MEMBER_GENDER_UNSPECIFIED)
-
 import android.app.Application
 import android.Manifest
 import android.content.Context
@@ -39,6 +36,9 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
+
+private const val MEMBER_GENDER_UNSPECIFIED = "unspecified"
+private val MEMBER_GENDER_VALUES = setOf("male", "female", MEMBER_GENDER_UNSPECIFIED)
 
 class MainVm(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("us", Context.MODE_PRIVATE)
