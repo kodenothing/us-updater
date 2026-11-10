@@ -174,6 +174,12 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                         coupleLoadError.value = null
                     }
                     registerPushToken(c)
+
+                    // Pairing may be restored after a widget was already pinned. Its
+                    // original AppWidget onUpdate then had no couple code and could not
+                    // register periodic sync, so ensure the durable worker here as well.
+                    LivePhotoWidgetProvider.ensureBackgroundSyncScheduled(getApplication(), c)
+
                     launch {
                         try {
                             LivePhotoWidgetRepo.observeCurrent(c).collectLatest {
