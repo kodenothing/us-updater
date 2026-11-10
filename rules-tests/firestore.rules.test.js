@@ -87,6 +87,37 @@ test('a member can edit only their own nickname', async () => {
   await assertFails(updateDoc(couple, { [`memberNames.${MEMBER_B}`]: 'Impersonated' }));
 });
 
+test('each paired member can set only their own gender value', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const outsiderDb = environment.authenticatedContext(OUTSIDER).firestore();
+  const aCouple = ref(aDb, couplePath);
+  const bCouple = ref(bDb, couplePath);
+  const outsiderCouple = ref(outsiderDb, couplePath);
+
+  // Legacy couple documents without memberGenders accept the first own-field update.
+  await assertSucceeds(updateDoc(aCouple, { [`memberGenders.${MEMBER_A}`]: 'male' }));
+  await assertSucceeds(updateDoc(bCouple, { [`memberGenders.${MEMBER_B}`]: 'female' }));
+
+  // Both paired members can read the profile map for perspective-aware UI labels.
+  const aView = await getDoc(aCouple);
+  const bView = await getDoc(bCouple);
+  assert.equal(aView.data().memberGenders[MEMBER_A], 'male');
+  assert.equal(aView.data().memberGenders[MEMBER_B], 'female');
+  assert.equal(bView.data().memberGenders[MEMBER_A], 'male');
+  assert.equal(bView.data().memberGenders[MEMBER_B], 'female');
+
+  await assertSucceeds(updateDoc(aCouple, { [`memberGenders.${MEMBER_A}`]: 'unspecified' }));
+  await assertFails(updateDoc(aCouple, { [`memberGenders.${MEMBER_B}`]: 'unspecified' }));
+  await assertFails(updateDoc(bCouple, { [`memberGenders.${MEMBER_A}`]: 'female' }));
+  await assertFails(updateDoc(aCouple, { [`memberGenders.${MEMBER_A}`]: 'other' }));
+  await assertFails(updateDoc(aCouple, {
+    [`memberGenders.${MEMBER_A}`]: 'male',
+    coupleName: 'Impersonated update'
+  }));
+  await assertFails(updateDoc(outsiderCouple, { [`memberGenders.${OUTSIDER}`]: 'male' }));
+});
+
 test('a third account cannot join an already paired couple', async () => {
   const db = environment.authenticatedContext(OUTSIDER).firestore();
   await assertFails(updateDoc(ref(db, couplePath), {
