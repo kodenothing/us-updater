@@ -23,6 +23,7 @@ import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
@@ -62,6 +63,8 @@ import java.util.Locale
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
 @Composable
@@ -72,6 +75,7 @@ fun OurInstantGalleryScreen(
     onBack: () -> Unit
 ) {
     val scope = rememberCoroutineScope()
+    val loadMutex = remember(code, uid) { Mutex() }
     val background = Color(0xFF09090B)
     val foreground = Color.White
     val muted = Color(0xFF9A9AA2)
@@ -103,8 +107,7 @@ fun OurInstantGalleryScreen(
             }
     }
 
-    suspend fun loadNextPage(reset: Boolean) {
-        if (loading) return
+    suspend fun loadNextPage(reset: Boolean) = loadMutex.withLock {
         loading = true
         galleryError = null
         try {
@@ -151,6 +154,8 @@ fun OurInstantGalleryScreen(
                 .toLocalDate()
         }.toSortedMap(compareByDescending<LocalDate> { it })
     }
+
+    BackHandler(onBack = onBack)
 
     Column(
         modifier = Modifier.fillMaxSize().background(background).padding(pad)
