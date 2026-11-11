@@ -63,6 +63,30 @@
                 android:resource="@xml/live_photo_widget_info" />
         </receiver>
         <receiver
+            android:name=".MyInstantWidgetProvider"
+            android:exported="true"
+            android:label="@string/my_instant_widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_OPTIONS_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/my_instant_widget_info" />
+        </receiver>
+        <receiver
+            android:name=".PartnerInstantWidgetProvider"
+            android:exported="true"
+            android:label="@string/partner_instant_widget_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+                <action android:name="android.appwidget.action.APPWIDGET_OPTIONS_CHANGED" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/partner_instant_widget_info" />
+        </receiver>
+        <receiver
             android:name=".DaysTogetherWidgetProvider"
             android:exported="true">
             <intent-filter>
