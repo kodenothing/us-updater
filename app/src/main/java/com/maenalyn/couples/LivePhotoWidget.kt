@@ -258,7 +258,6 @@ object LivePhotoWidgetRepo {
             // the new independent My Instant / Partner Instant widgets.
             val currentSnapshot = transaction.get(stateRef)
             val photoSnapshot = transaction.get(photoRef)
-            val memberSnapshot = transaction.get(memberStateRef)
             if (!photoSnapshot.exists() || photoSnapshot.getString("createdBy") != uid) {
                 throw IllegalStateException("The new shared photo is no longer available.")
             }
@@ -661,7 +660,11 @@ private suspend fun syncMemberWidgetCaches(context: Context, code: String) {
     val members = (couple.get("members") as? List<*>)?.filterIsInstance<String>().orEmpty()
     val currentUid = FirebaseAuth.getInstance().currentUser?.uid
 
-    if (!couple.exists() || currentUid.isNullOrBlank() || currentUid !in members) {
+    // WorkManager can start the process before Firebase Auth finishes restoring
+    // its persisted session. Keep the last good owner mapping/cache in that case.
+    if (currentUid.isNullOrBlank()) return
+
+    if (!couple.exists() || currentUid !in members) {
         prefs.edit()
             .remove(LivePhotoWidgetFiles.MY_UID_PREFERENCE)
             .remove(LivePhotoWidgetFiles.PARTNER_UID_PREFERENCE)
@@ -698,6 +701,9 @@ private suspend fun syncMemberWidgetCaches(context: Context, code: String) {
         if (photoId.isBlank()) {
             withContext(Dispatchers.IO) { cache.delete() }
             prefs.edit().remove(cacheIdPreference).apply()
+            continue
+        }
+        if (cache.exists() && prefs.getString(cacheIdPreference, null) == photoId) {
             continue
         }
 
@@ -1073,7 +1079,7 @@ private object MemberInstantWidgetRenderer {
         }
         val pending = PendingIntent.getActivity(
             context,
-            id + if (partner) 5200 else 4200,
+            id,
             intent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
