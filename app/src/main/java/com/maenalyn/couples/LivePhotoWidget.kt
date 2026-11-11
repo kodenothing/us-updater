@@ -58,6 +58,11 @@ data class LivePhotoGalleryPage(
     val nextCursor: DocumentSnapshot?
 )
 
+data class LivePhotoGalleryMembers(
+    val partnerUid: String,
+    val partnerGender: String
+)
+
 data class LivePhotoWidgetState(
     val activePhotoId: String = "",
     val updatedBy: String = "",
@@ -113,6 +118,24 @@ object LivePhotoWidgetRepo {
     )
 
     fun getPhoto(code: String, id: String) = photos(code).document(id).get(Source.SERVER)
+
+    suspend fun loadGalleryMembers(code: String, currentUid: String): LivePhotoGalleryMembers {
+        require(code.isNotBlank()) { "A shared space is required." }
+        require(currentUid.isNotBlank()) { "Your account is not ready." }
+        val snapshot = couple(code).get(Source.SERVER).await()
+        if (!snapshot.exists()) throw IllegalStateException("Your shared space is unavailable.")
+        val members = (snapshot.get("members") as? List<*>)?.filterIsInstance<String>().orEmpty()
+        if (currentUid !in members || members.size != 2) {
+            throw IllegalStateException("Our Instant Gallery is available when both partners are paired.")
+        }
+        val partnerUid = members.firstOrNull { it != currentUid }
+            ?: throw IllegalStateException("Your partner could not be found.")
+        val genders = (snapshot.get("memberGenders") as? Map<*, *>).orEmpty()
+        val partnerGender = (genders[partnerUid] as? String)
+            ?.takeIf { it in setOf("male", "female", "unspecified") }
+            ?: "unspecified"
+        return LivePhotoGalleryMembers(partnerUid, partnerGender)
+    }
 
     /**
      * Loads a descending page of ready Our Instant captures for one member.
