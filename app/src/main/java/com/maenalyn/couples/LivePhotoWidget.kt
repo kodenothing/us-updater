@@ -24,6 +24,8 @@ import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
 import com.google.firebase.firestore.Blob
+import com.google.firebase.firestore.DocumentSnapshot
+import com.google.firebase.firestore.Query
 import com.google.firebase.firestore.FirebaseFirestore
 import com.google.firebase.firestore.Source
 import com.google.firebase.firestore.FirebaseFirestoreException
@@ -42,6 +44,19 @@ import kotlinx.coroutines.withContext
 private const val LIVE_WIDGET_MAX_IMAGE_BYTES = 700 * 1024
 private const val LIVE_WIDGET_MAX_THUMBNAIL_BYTES = 80 * 1024
 private const val LIVE_WIDGET_STATE_DOCUMENT = "current"
+
+data class LivePhotoGalleryEntry(
+    val id: String,
+    val ownerUid: String,
+    val createdAt: Long,
+    val sizeBytes: Long,
+    val thumbnailBytes: Long
+)
+
+data class LivePhotoGalleryPage(
+    val entries: List<LivePhotoGalleryEntry>,
+    val nextCursor: DocumentSnapshot?
+)
 
 data class LivePhotoWidgetState(
     val activePhotoId: String = "",
@@ -98,6 +113,74 @@ object LivePhotoWidgetRepo {
     )
 
     fun getPhoto(code: String, id: String) = photos(code).document(id).get(Source.SERVER)
+
+    /**
+     * Loads a descending page of ready Our Instant captures for one member.
+     *
+     * The query is scoped to the couple. Owner filtering is applied to the returned
+     * metadata so this can use Firestore's automatic createdAt index and does not
+     * introduce a composite-index deployment requirement.
+     */
+    suspend fun loadGalleryPage(
+        code: String,
+        ownerUid: String,
+        pageSize: Int = 30,
+        after: DocumentSnapshot? = null
+    ): LivePhotoGalleryPage {
+        require(code.isNotBlank()) { "A shared space is required." }
+        require(ownerUid.isNotBlank()) { "A photo owner is required." }
+        require(pageSize in 1..60) { "Gallery page size must be between 1 and 60." }
+
+        var query = photos(code)
+            .orderBy("createdAt", Query.Direction.DESCENDING)
+            .limit(pageSize.toLong())
+        if (after != null) query = query.startAfter(after)
+
+        val snapshot = query.get(Source.SERVER).await()
+        val entries = snapshot.documents.mapNotNull { document ->
+            val createdBy = document.getString("createdBy") ?: return@mapNotNull null
+            val createdAt = document.getLong("createdAt") ?: return@mapNotNull null
+            if (createdBy != ownerUid || document.getString("status") != "ready") {
+                return@mapNotNull null
+            }
+            LivePhotoGalleryEntry(
+                id = document.id,
+                ownerUid = createdBy,
+                createdAt = createdAt,
+                sizeBytes = document.getLong("sizeBytes") ?: 0L,
+                thumbnailBytes = document.getLong("thumbnailBytes") ?: 0L
+            )
+        }
+        val cursor = if (snapshot.documents.size == pageSize) snapshot.documents.lastOrNull() else null
+        return LivePhotoGalleryPage(entries = entries, nextCursor = cursor)
+    }
+
+    /**
+     * Loads an image or thumbnail for a ready history item. A missing preferred
+     * rendition falls back to the other stored rendition.
+     */
+    suspend fun loadGalleryImageBytes(
+        code: String,
+        photoId: String,
+        preferThumbnail: Boolean
+    ): ByteArray? {
+        val metadata = getPhoto(code, photoId).await()
+        if (!metadata.exists() || metadata.getString("status") != "ready") return null
+
+        val preferred = if (preferThumbnail) "thumbnail" else "image"
+        val fallback = if (preferThumbnail) "image" else "thumbnail"
+        val preferredBytes = getBlob(code, photoId, preferred).await()
+            .getBlob("image")?.toBytes()
+        if (preferredBytes != null && preferredBytes.isNotEmpty() &&
+            preferredBytes.size <= LIVE_WIDGET_MAX_IMAGE_BYTES
+        ) return preferredBytes
+
+        val fallbackBytes = getBlob(code, photoId, fallback).await()
+            .getBlob("image")?.toBytes()
+        return fallbackBytes?.takeIf {
+            it.isNotEmpty() && it.size <= LIVE_WIDGET_MAX_IMAGE_BYTES
+        }
+    }
 
     fun getBlob(code: String, id: String, name: String) =
         photos(code).document(id).collection("content").document(name).get(Source.SERVER)
@@ -396,17 +479,11 @@ class LivePhotoWidgetUploadWorker(context: Context, params: WorkerParameters) : 
                     withContext(Dispatchers.IO) { file.delete() }
                     return Result.success()
                 }
-                val previousId = LivePhotoWidgetRepo.activatePhoto(
+                // Publishing a new capture changes only the current widget pointer.
+                // The previous ready photo remains in livePhotoWidgetPhotos for the gallery.
+                LivePhotoWidgetRepo.activatePhoto(
                     code, id, uid, imageBytes.size.toLong(), thumbnailBytes.size.toLong()
                 )
-                if (!previousId.isNullOrBlank() && previousId != id) {
-                    LivePhotoWidgetRepo.deletePhoto(code, previousId)
-                }
-            } else {
-                val previousId = latest.getString("previousPhotoId").orEmpty()
-                if (previousId.isNotBlank() && previousId != id) {
-                    LivePhotoWidgetRepo.deletePhoto(code, previousId)
-                }
             }
 
             withContext(Dispatchers.IO) { file.delete() }
