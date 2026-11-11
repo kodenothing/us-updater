@@ -217,25 +217,6 @@ service cloud.firestore {
         allow delete: if isCoupleMember(cid);
       }
 
-      function livePhotoIsNotActive(cid, photoId) {
-        let currentPath = /databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current;
-        return !exists(currentPath) || get(currentPath).data.activePhotoId != photoId;
-      }
-
-      function canDeleteLivePhoto(cid, photoId, photoOwnerUid) {
-        let currentPath = /databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current;
-        let parent = get(/databases/$(db)/documents/couples/$(cid)).data;
-        return (
-          (photoOwnerUid == request.auth.uid && livePhotoIsNotActive(cid, photoId))
-          || (livePhotoIsNotActive(cid, photoId) && allMembersApprovedForDeletion(parent))
-          || (
-            exists(currentPath)
-            && get(currentPath).data.activePhotoId == ''
-            && get(currentPath).data.updatedBy == request.auth.uid
-          )
-        );
-      }
-
       // Live Photo Widget keeps one shared active pointer and independent Firestore Blob photos.
       match /livePhotoWidget/{stateId} {
         allow read: if isCoupleMember(cid);
@@ -290,7 +271,10 @@ service cloud.firestore {
           && existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)/content/image)
           && existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)/content/thumbnail);
 
-        allow delete: if isCoupleMember(cid) && canDeleteLivePhoto(cid, photoId, resource.data.createdBy);
+        allow delete: if isCoupleMember(cid) && (
+          !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
+          || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
+        );
 
         match /content/{contentId} {
           allow get: if contentId in ['image', 'thumbnail'] && isCoupleMember(cid);
@@ -311,10 +295,9 @@ service cloud.firestore {
             && request.resource.data.createdAt is int;
 
           allow update: if false;
-          allow delete: if isCoupleMember(cid) && canDeleteLivePhoto(
-            cid,
-            photoId,
-            get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)).data.createdBy
+          allow delete: if isCoupleMember(cid) && (
+            !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
+            || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
           );
         }
       }
