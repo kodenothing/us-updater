@@ -3,4 +3,8 @@
     <string name="days_widget_description">Your days together, always close.</string>
     <string name="our_instant_widget_name">Our Instant</string>
     <string name="our_instant_widget_description">A shared photo that updates on both home screens.</string>
+    <string name="my_instant_widget_name">My Instant</string>
+    <string name="my_instant_widget_description">Your latest Our Instant photo.</string>
+    <string name="partner_instant_widget_name">Partner Instant</string>
+    <string name="partner_instant_widget_description">Your partner's latest Our Instant photo.</string>
 </resources>
