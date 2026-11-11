@@ -561,6 +561,92 @@ test('Live Photo Widget photos use Firestore Blobs and only the active pointer p
 });
 
 
+test('personal Instant widget pointers are owner-only and protect their active photos', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const outsiderDb = environment.authenticatedContext(OUTSIDER).firestore();
+
+  const photo = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo');
+  const image = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo', 'content', 'image');
+  const thumbnail = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo', 'content', 'thumbnail');
+  const ownerPointer = ref(aDb, couplePath, 'livePhotoWidgetMembers', MEMBER_A);
+  const sharedPointer = ref(aDb, couplePath, 'livePhotoWidget', 'current');
+
+  await assertSucceeds(setDoc(photo, {
+    createdBy: MEMBER_A,
+    createdAt: 100,
+    status: 'pending',
+    sizeBytes: 0,
+    thumbnailBytes: 0
+  }));
+  await assertSucceeds(setDoc(image, {
+    image: Bytes.fromUint8Array(new Uint8Array([1, 2, 3])),
+    contentType: 'image/jpeg',
+    createdBy: MEMBER_A,
+    createdAt: 100
+  }));
+  await assertSucceeds(setDoc(thumbnail, {
+    image: Bytes.fromUint8Array(new Uint8Array([4, 5, 6])),
+    contentType: 'image/jpeg',
+    createdBy: MEMBER_A,
+    createdAt: 100
+  }));
+
+  // Publish the image and its personal pointer in one atomic batch.
+  const publish = writeBatch(aDb);
+  publish.update(photo, {
+    status: 'ready',
+    sizeBytes: 3,
+    thumbnailBytes: 3,
+    previousPhotoId: ''
+  });
+  publish.set(ownerPointer, {
+    activePhotoId: 'member-a-photo',
+    updatedBy: MEMBER_A,
+    updatedAt: 101
+  });
+  // The independent widget does not depend on the legacy shared pointer.
+  publish.set(sharedPointer, {
+    activePhotoId: '',
+    updatedBy: MEMBER_A,
+    updatedAt: 101
+  });
+  await assertSucceeds(publish.commit());
+
+  await assertSucceeds(getDoc(ref(bDb, couplePath, 'livePhotoWidgetMembers', MEMBER_A)));
+  await assertFails(getDoc(ref(outsiderDb, couplePath, 'livePhotoWidgetMembers', MEMBER_A)));
+  await assertFails(getDocs(collection(outsiderDb, couplePath, 'livePhotoWidgetMembers')));
+
+  // A partner cannot write the other member's pointer or publish their photo
+  // under the partner's own pointer.
+  await assertFails(updateDoc(ref(bDb, couplePath, 'livePhotoWidgetMembers', MEMBER_A), {
+    activePhotoId: '',
+    updatedBy: MEMBER_B,
+    updatedAt: 102
+  }));
+  await assertFails(setDoc(ref(bDb, couplePath, 'livePhotoWidgetMembers', MEMBER_B), {
+    activePhotoId: 'member-a-photo',
+    updatedBy: MEMBER_B,
+    updatedAt: 102
+  }));
+
+  // Clearing the legacy shared pointer is not enough to make a personal-widget
+  // image deletable while its owner pointer still references it.
+  await assertFails(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo')));
+  await assertFails(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo', 'content', 'image')));
+  await assertFails(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo', 'content', 'thumbnail')));
+
+  await assertSucceeds(updateDoc(ownerPointer, {
+    activePhotoId: '',
+    updatedBy: MEMBER_A,
+    updatedAt: 103
+  }));
+  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo', 'content', 'image')));
+  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo', 'content', 'thumbnail')));
+  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'member-a-photo')));
+});
+
+
 test('Live Photo Widget state is removed only after both partners approve permanent deletion', async () => {
   const aDb = environment.authenticatedContext(MEMBER_A).firestore();
   const bDb = environment.authenticatedContext(MEMBER_B).firestore();
