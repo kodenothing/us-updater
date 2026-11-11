@@ -4,8 +4,8 @@ import android.content.Context
 import androidx.annotation.LayoutRes
 
 /**
- * Appearance is stored per launcher widget ID. The shared image remains the
- * same for both partners; only this phone's widget frame is customized.
+ * Appearance is stored per launcher widget ID. Each widget instance resolves
+ * its own member-owned photo cache; only its frame style is customized here.
  */
 internal object OurInstantWidgetDesigns {
     const val STYLE_SOFT = "soft"
