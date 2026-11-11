@@ -3,7 +3,7 @@
 ## Experience
 
 - Gallery icon is placed immediately to the left of the camera shutter.
-- The gallery replaces the camera preview while open and returns to the camera with a back action.
+- The gallery replaces the camera preview while open and returns to the camera with a back action or Android system Back.
 - Personal tabs are perspective-aware: `I` for the signed-in Firebase UID and `She` / `He` based on the partner's saved gender. If the partner gender is unset, the label is `Partner`.
 - Each tab displays only ready captures owned by that UID.
 - Photos are grouped by local capture date, newest first, in a three-column square thumbnail grid.
@@ -16,14 +16,12 @@
 - Thumbnails are loaded on demand; original blobs are loaded only for the full-screen viewer.
 - Switching tabs resets the page cursor and requests the selected owner's view.
 
-## Deletion
+## Deletion boundary
 
-- The viewer exposes delete only in the signed-in member's own tab and hides it for the current widget photo.
-- Firestore rules enforce that a member can delete only their own non-current history photo.
-- Either partner can still remove the active shared widget photo through the existing camera-screen action. Both-partner-approved permanent shared-space cleanup remains allowed.
+The historical gallery is read-only in this stage. The existing camera-screen **Remove shared photo** action is unchanged. Individual historical-photo deletion is deferred until a dedicated, server-enforced owner-only deletion flow can be added without weakening the current shared-photo cleanup or whole-couple deletion rules.
 
 ## Rollout
 
-- This stage changes Firestore rules, so rerun the complete emulator suite and deploy `firestore.rules` before testing delete in the app.
-- Build with JDK 17. Install a release-signed build with the same signing certificate over both existing installations; do not uninstall or clear data.
-- Test gallery tabs, dates, full-screen swipe, owner-only delete, active-photo preservation, and Stage 3 historical retention.
+- Stage 4 does not change Firestore rules, require a database migration, or require Firebase deployment.
+- Build with JDK 17. Install the same compatible-signed build on both phones without uninstalling or clearing data.
+- Test gallery tabs, date grouping, pagination, full-screen swipe, and Stage 3 history retention.
