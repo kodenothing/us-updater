@@ -437,7 +437,7 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
             onDismissRequest = { confirmRemove = false },
             title = { Text("Remove the shared Our Instant photo?") },
             text = {
-                Text("This permanently removes the active Our Instant photo and its Firestore image documents. Both home-screen widgets will return to the empty state.")
+                Text("This removes the photo from the legacy shared widget only. The capture stays in its owner's gallery and personal Instant widget.")
             },
             confirmButton = {
                 TextButton(
