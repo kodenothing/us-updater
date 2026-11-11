@@ -35,6 +35,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.material.icons.filled.Cameraswitch
 import androidx.compose.material.icons.filled.DeleteOutline
+import androidx.compose.material.icons.filled.PhotoLibrary
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
@@ -94,6 +95,7 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
     var current by remember(code) { mutableStateOf(LivePhotoWidgetState()) }
     var working by remember { mutableStateOf(false) }
     var confirmRemove by remember { mutableStateOf(false) }
+    var showGallery by remember { mutableStateOf(false) }
 
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
@@ -228,6 +230,16 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
             working = false
             feedback = error.message ?: "Couldn't start the camera capture."
         }
+    }
+
+    if (showGallery) {
+        OurInstantGalleryScreen(
+            code = code,
+            uid = uid,
+            pad = pad,
+            onBack = { showGallery = false }
+        )
+        return
     }
 
     Column(
@@ -367,6 +379,19 @@ fun OurInstantCameraScreen(code: String, uid: String, pad: androidx.compose.foun
                         modifier = Modifier.size(27.dp)
                     )
                 }
+            }
+
+            IconButton(
+                onClick = { showGallery = true },
+                modifier = Modifier.align(Alignment.CenterStart).padding(start = 12.dp)
+                    .size(52.dp).background(Color.White.copy(alpha = 0.12f), CircleShape)
+            ) {
+                Icon(
+                    Icons.Filled.PhotoLibrary,
+                    contentDescription = "Open instant gallery",
+                    tint = white,
+                    modifier = Modifier.size(27.dp)
+                )
             }
 
             Box(
