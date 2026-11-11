@@ -13,6 +13,9 @@ const {
   deleteDoc,
   doc,
   getDoc,
+  getDocs,
+  orderBy,
+  query,
   setDoc,
   updateDoc,
   writeBatch,
@@ -219,6 +222,70 @@ test('memory originals and thumbnails enforce separate byte limits', async () =>
     image: Bytes.fromUint8Array(new Uint8Array(81 * 1024)),
     contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 2
   }));
+});
+
+test('Our Instant history preserves previous captures and allows only couple members to browse them', async () => {
+  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
+  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
+  const outsiderDb = environment.authenticatedContext(OUTSIDER).firestore();
+
+  const createReadyPhoto = async (db, id, ownerUid, createdAt) => {
+    const photo = ref(db, couplePath, 'livePhotoWidgetPhotos', id);
+    await assertSucceeds(setDoc(photo, {
+      createdBy: ownerUid,
+      createdAt,
+      status: 'pending',
+      sizeBytes: 0,
+      thumbnailBytes: 0
+    }));
+    const bytes = Bytes.fromUint8Array(new Uint8Array([255, 216, 255]));
+    await assertSucceeds(setDoc(ref(db, couplePath, 'livePhotoWidgetPhotos', id, 'content', 'image'), {
+      image: bytes, contentType: 'image/jpeg', createdBy: ownerUid, createdAt
+    }));
+    await assertSucceeds(setDoc(ref(db, couplePath, 'livePhotoWidgetPhotos', id, 'content', 'thumbnail'), {
+      image: bytes, contentType: 'image/jpeg', createdBy: ownerUid, createdAt
+    }));
+    await assertSucceeds(updateDoc(photo, {
+      status: 'ready',
+      sizeBytes: 3,
+      thumbnailBytes: 3,
+      previousPhotoId: ''
+    }));
+  };
+
+  // James captures first; Mae's later capture becomes current without deleting his history.
+  await createReadyPhoto(aDb, 'history-james-old', MEMBER_A, 100);
+  await createReadyPhoto(bDb, 'history-mae-new', MEMBER_B, 200);
+  await assertSucceeds(setDoc(ref(bDb, couplePath, 'livePhotoWidget', 'current'), {
+    activePhotoId: 'history-mae-new',
+    updatedBy: MEMBER_B,
+    updatedAt: 200
+  }));
+
+  const jamesHistory = await getDocs(query(
+    collection(aDb, couplePath, 'livePhotoWidgetPhotos'),
+    orderBy('createdAt', 'desc')
+  ));
+  const jamesViewFromMae = await getDocs(query(
+    collection(bDb, couplePath, 'livePhotoWidgetPhotos'),
+    orderBy('createdAt', 'desc')
+  ));
+
+  assert.deepEqual(jamesHistory.docs.map((entry) => entry.id), [
+    'history-mae-new',
+    'history-james-old'
+  ]);
+  assert.deepEqual(
+    jamesViewFromMae.docs.map((entry) => entry.id),
+    ['history-mae-new', 'history-james-old']
+  );
+
+  await assertSucceeds(getDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'history-james-old')));
+  await assertSucceeds(getDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'history-james-old', 'content', 'image')));
+  await assertFails(getDocs(query(
+    collection(outsiderDb, couplePath, 'livePhotoWidgetPhotos'),
+    orderBy('createdAt', 'desc')
+  )));
 });
 
 test('permanent deletion requires both partner approvals', async () => {
