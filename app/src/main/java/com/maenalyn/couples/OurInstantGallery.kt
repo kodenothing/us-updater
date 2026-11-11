@@ -316,6 +316,7 @@ private fun OurInstantPhotoViewer(
     val pagerState = rememberPagerState(initialPage = initialIndex.coerceIn(entries.indices)) {
         entries.size
     }
+    val activeEntry = entries.getOrNull(pagerState.currentPage)
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
