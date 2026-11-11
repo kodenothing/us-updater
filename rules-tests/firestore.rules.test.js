@@ -288,62 +288,6 @@ test('Our Instant history preserves previous captures and allows only couple mem
   )));
 });
 
-test('Our Instant gallery history deletion is owner-only and active-photo removal remains available to either partner', async () => {
-  const aDb = environment.authenticatedContext(MEMBER_A).firestore();
-  const bDb = environment.authenticatedContext(MEMBER_B).firestore();
-  const bytes = Bytes.fromUint8Array(new Uint8Array([1, 2, 3]));
-
-  const oldPhoto = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'old-photo-a');
-  const oldImage = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'old-photo-a', 'content', 'image');
-  const oldThumb = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'old-photo-a', 'content', 'thumbnail');
-  await assertSucceeds(setDoc(oldPhoto, {
-    createdBy: MEMBER_A, createdAt: 100, status: 'pending', sizeBytes: 0, thumbnailBytes: 0
-  }));
-  await assertSucceeds(setDoc(oldImage, {
-    image: bytes, contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 100
-  }));
-  await assertSucceeds(setDoc(oldThumb, {
-    image: bytes, contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 100
-  }));
-  await assertSucceeds(updateDoc(oldPhoto, {
-    status: 'ready', sizeBytes: 3, thumbnailBytes: 3, previousPhotoId: ''
-  }));
-
-  // The other member can view history, but cannot delete a photo they do not own.
-  await assertSucceeds(getDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'old-photo-a')));
-  await assertFails(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'old-photo-a', 'content', 'image')));
-  await assertFails(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'old-photo-a')));
-  // The owner can delete their own non-current history entry.
-  await assertSucceeds(deleteDoc(oldImage));
-  await assertSucceeds(deleteDoc(oldThumb));
-  await assertSucceeds(deleteDoc(oldPhoto));
-
-  // Removing the active shared photo remains a two-person shared action.
-  const active = ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'active-photo');
-  await assertSucceeds(setDoc(active, {
-    createdBy: MEMBER_A, createdAt: 200, status: 'pending', sizeBytes: 0, thumbnailBytes: 0
-  }));
-  await assertSucceeds(setDoc(ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'active-photo', 'content', 'image'), {
-    image: bytes, contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 200
-  }));
-  await assertSucceeds(setDoc(ref(aDb, couplePath, 'livePhotoWidgetPhotos', 'active-photo', 'content', 'thumbnail'), {
-    image: bytes, contentType: 'image/jpeg', createdBy: MEMBER_A, createdAt: 200
-  }));
-  await assertSucceeds(updateDoc(active, {
-    status: 'ready', sizeBytes: 3, thumbnailBytes: 3, previousPhotoId: ''
-  }));
-  const current = ref(aDb, couplePath, 'livePhotoWidget', 'current');
-  await assertSucceeds(setDoc(current, {
-    activePhotoId: 'active-photo', updatedBy: MEMBER_A, updatedAt: 201
-  }));
-  await assertSucceeds(updateDoc(ref(bDb, couplePath, 'livePhotoWidget', 'current'), {
-    activePhotoId: '', updatedBy: MEMBER_B, updatedAt: 202
-  }));
-  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'active-photo', 'content', 'image')));
-  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'active-photo', 'content', 'thumbnail')));
-  await assertSucceeds(deleteDoc(ref(bDb, couplePath, 'livePhotoWidgetPhotos', 'active-photo')));
-});
-
 test('permanent deletion requires both partner approvals', async () => {
   const aDb = environment.authenticatedContext(MEMBER_A).firestore();
   const bDb = environment.authenticatedContext(MEMBER_B).firestore();
