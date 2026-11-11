@@ -34,7 +34,6 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
@@ -288,9 +287,6 @@ private fun GalleryGridPhoto(code: String, entry: LivePhotoGalleryEntry, onClick
             BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
         }
     }
-    DisposableEffect(bitmap) {
-        onDispose { bitmap?.takeIf { !it.isRecycled }?.recycle() }
-    }
     Box(
         modifier = Modifier.fillMaxWidth().aspectRatio(1f).clip(RoundedCornerShape(3.dp))
             .background(Color(0xFF202024)).clickable(onClick = onClick),
@@ -331,9 +327,6 @@ private fun OurInstantPhotoViewer(
                     value = if (bytes == null) null else withContext(Dispatchers.IO) {
                         BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
                     }
-                }
-                DisposableEffect(bitmap) {
-                    onDispose { bitmap?.takeIf { !it.isRecycled }?.recycle() }
                 }
                 Box(Modifier.fillMaxSize().padding(horizontal = 10.dp, vertical = 76.dp), contentAlignment = Alignment.Center) {
                     if (bitmap != null) {
