@@ -26,8 +26,6 @@ import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
-import androidx.compose.material.icons.filled.DeleteOutline
-import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -86,10 +84,7 @@ fun OurInstantGalleryScreen(
     var hasMore by remember(code, uid) { mutableStateOf(false) }
     var loading by remember(code, uid) { mutableStateOf(false) }
     var galleryError by remember(code, uid) { mutableStateOf<String?>(null) }
-    var currentPhotoId by remember(code, uid) { mutableStateOf("") }
     var viewerIndex by remember { mutableStateOf<Int?>(null) }
-    var pendingDelete by remember { mutableStateOf<LivePhotoGalleryEntry?>(null) }
-    var deleting by remember { mutableStateOf(false) }
 
     val partnerLabel = when (members?.partnerGender) {
         "female" -> "She"
@@ -106,10 +101,6 @@ fun OurInstantGalleryScreen(
             .onFailure {
                 memberError = it.message ?: "Couldn't load your shared gallery."
             }
-    }
-
-    LaunchedEffect(code) {
-        LivePhotoWidgetRepo.observeCurrent(code).collect { currentPhotoId = it.activePhotoId }
     }
 
     suspend fun loadNextPage(reset: Boolean) {
@@ -263,49 +254,10 @@ fun OurInstantGalleryScreen(
             entries = entries,
             initialIndex = index,
             ownerLabel = if (selectedOwnerUid == uid) "I" else partnerLabel,
-            canDeleteOwn = selectedOwnerUid == uid,
-            activePhotoId = currentPhotoId,
-            onDismiss = { viewerIndex = null },
-            onDelete = { pendingDelete = it }
+            onDismiss = { viewerIndex = null }
         )
     }
 
-    if (pendingDelete != null) {
-        val entry = pendingDelete!!
-        AlertDialog(
-            onDismissRequest = { if (!deleting) pendingDelete = null },
-            title = { Text("Delete this instant?") },
-            text = { Text("This removes your photo from the shared gallery on both phones.") },
-            confirmButton = {
-                TextButton(
-                    enabled = !deleting,
-                    onClick = {
-                        scope.launch {
-                            deleting = true
-                            try {
-                                LivePhotoWidgetRepo.deletePhoto(code, entry.id)
-                                val deletedIndex = entries.indexOfFirst { it.id == entry.id }
-                                entries = entries.filterNot { it.id == entry.id }
-                                if (entries.isEmpty()) viewerIndex = null
-                                else if (viewerIndex != null && deletedIndex in 0 until viewerIndex!!) {
-                                    viewerIndex = (viewerIndex!! - 1).coerceAtLeast(0)
-                                } else if (viewerIndex != null && viewerIndex!! >= entries.size) {
-                                    viewerIndex = entries.lastIndex
-                                }
-                                pendingDelete = null
-                                galleryError = null
-                            } catch (error: Exception) {
-                                galleryError = error.message ?: "Couldn't delete this photo."
-                            } finally {
-                                deleting = false
-                            }
-                        }
-                    }
-                ) { Text(if (deleting) "Deleting…" else "Delete") }
-            },
-            dismissButton = { TextButton(onClick = { pendingDelete = null }, enabled = !deleting) { Text("Cancel") } }
-        )
-    }
 }
 
 @Composable
@@ -354,15 +306,11 @@ private fun OurInstantPhotoViewer(
     entries: List<LivePhotoGalleryEntry>,
     initialIndex: Int,
     ownerLabel: String,
-    canDeleteOwn: Boolean,
-    activePhotoId: String,
-    onDismiss: () -> Unit,
-    onDelete: (LivePhotoGalleryEntry) -> Unit
+    onDismiss: () -> Unit
 ) {
     val pagerState = rememberPagerState(initialPage = initialIndex.coerceIn(entries.indices)) {
         entries.size
     }
-    val activeEntry = entries.getOrNull(pagerState.currentPage)
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false)
@@ -407,11 +355,6 @@ private fun OurInstantPhotoViewer(
                         color = Color.White.copy(alpha = 0.72f),
                         fontSize = 12.sp
                     )
-                }
-                if (canDeleteOwn && activeEntry != null && activeEntry.id != activePhotoId) {
-                    IconButton(onClick = { onDelete(activeEntry) }) {
-                        Icon(Icons.Filled.DeleteOutline, contentDescription = "Delete my photo", tint = Color.White)
-                    }
                 }
             }
 
