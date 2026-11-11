@@ -25,7 +25,7 @@ The periodic worker is shared by all three widget types. It retains the existing
 
 - A photo referenced by the legacy shared pointer or its owner's personal widget pointer cannot be deleted.
 - Clearing the legacy shared widget pointer no longer deletes the photo. The photo remains in the owner's gallery and personal widget.
-- Personal pointer documents can be cleared by their owner; deleting the pointer documents themselves remains reserved for permanent couple deletion approval.
+- The owner can clear their pointer's `activePhotoId` through the owner-only rules; this stage adds no separate in-app pointer-clearing control. Deleting the pointer documents themselves remains reserved for permanent couple deletion approval.
 - Gallery history remains read-only in the UI. This stage does not add an individual history-delete action.
 
 ## Firebase rules
