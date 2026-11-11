@@ -48,7 +48,8 @@
 ## Validation recorded
 
 - Debug build: `.\gradlew.bat clean assembleDebug` — successful.
-- Release build: `.\gradlew.bat assembleRelease` — successful before the final version metadata bump; rebuild the release APK after the version bump.
+- Release build: `.\gradlew.bat assembleRelease` — successful after the v2.7.0 version metadata and final resource correction were synced to `main`.
+- GitHub release: `v2.7.0` published with the APK, SHA-256 sidecar, and output metadata assets.
 - Firestore rules emulator: **22 passed, 0 failed, 0 skipped**.
 - Developer-reported two-phone Stage 5 feature test: working.
 
