@@ -37,6 +37,9 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.tasks.await
 
+private const val MEMBER_GENDER_UNSPECIFIED = "unspecified"
+private val MEMBER_GENDER_VALUES = setOf("male", "female", MEMBER_GENDER_UNSPECIFIED)
+
 class MainVm(app: Application) : AndroidViewModel(app) {
     private val prefs = app.getSharedPreferences("us", Context.MODE_PRIVATE)
     private val pendingWriteCounter = AtomicInteger(0)
@@ -60,6 +63,8 @@ class MainVm(app: Application) : AndroidViewModel(app) {
         authUid.value = firebaseAuth.currentUser?.uid
         firebaseAuthReady.value = true
         myNickname.value = authUid.value?.let { couple.value?.memberNames?.get(it) }.orEmpty()
+        myGender.value = authUid.value?.let { couple.value?.memberGenders?.get(it) }
+            ?.takeIf { it in MEMBER_GENDER_VALUES } ?: MEMBER_GENDER_UNSPECIFIED
         val currentCode = code.value
         val uid = firebaseAuth.currentUser?.uid
         if (currentCode != null && uid != null) {
@@ -106,6 +111,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
     val animateHeart = MutableStateFlow(prefs.getBoolean("heart", true))
     val appTitle = MutableStateFlow(prefs.getString("title", "Us 💜") ?: "Us 💜")
     val myNickname = MutableStateFlow("")
+    val myGender = MutableStateFlow(MEMBER_GENDER_UNSPECIFIED)
     val partnerNotificationsEnabled = MutableStateFlow(prefs.getBoolean("partnerNotifications", true))
     val notifyLists = MutableStateFlow(prefs.getBoolean("notifyLists", true))
     val notifyEvents = MutableStateFlow(prefs.getBoolean("notifyEvents", true))
@@ -140,6 +146,7 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                     couple.value = null
                     coupleLoadError.value = null
                     myNickname.value = ""
+                    myGender.value = MEMBER_GENDER_UNSPECIFIED
                     items.value = emptyList()
                     events.value = emptyList()
                     notes.value = emptyList()
@@ -217,6 +224,8 @@ class MainVm(app: Application) : AndroidViewModel(app) {
                                             couple.value = state
                                             appTitle.value = state.coupleName
                                             myNickname.value = authUid.value?.let { state.memberNames[it] }.orEmpty()
+                                            myGender.value = authUid.value?.let { state.memberGenders[it] }
+                                                ?.takeIf { it in MEMBER_GENDER_VALUES } ?: MEMBER_GENDER_UNSPECIFIED
                                             prefs.edit()
                                                 .putString("title", state.coupleName)
                                                 .putLong("anniversaryCache", state.anniversaryEpochDay ?: DEFAULT_ANNIVERSARY)
@@ -1070,6 +1079,16 @@ class MainVm(app: Application) : AndroidViewModel(app) {
         val c = code.value ?: return
         val uid = Repo.currentUid() ?: return
         trackWrite(Repo.setMemberNickname(c, uid, nickname))
+    }
+
+    fun setMyGender(value: String) {
+        if (value !in MEMBER_GENDER_VALUES) {
+            message.value = "Choose a valid gender setting."
+            return
+        }
+        val c = code.value ?: return
+        val uid = Repo.currentUid() ?: return
+        trackWrite(Repo.setMemberGender(c, uid, value))
     }
 
     fun renameCouple(value: String) {

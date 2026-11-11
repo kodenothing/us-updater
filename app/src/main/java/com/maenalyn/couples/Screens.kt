@@ -1782,6 +1782,7 @@ fun SettingsTab(
     val showBreakdown by vm.showBreakdown.collectAsState()
     val animateHeart by vm.animateHeart.collectAsState()
     val savedNickname by vm.myNickname.collectAsState()
+    val savedGender by vm.myGender.collectAsState()
     val partnerNotificationsEnabled by vm.partnerNotificationsEnabled.collectAsState()
     val notifyLists by vm.notifyLists.collectAsState()
     val notifyEvents by vm.notifyEvents.collectAsState()
@@ -1817,6 +1818,7 @@ fun SettingsTab(
     var showRecoverySetup by remember { mutableStateOf(false) }
     var sharedName by remember(couple?.coupleName) { mutableStateOf(couple?.coupleName ?: "Us 💜") }
     var nickname by remember(savedNickname) { mutableStateOf(savedNickname) }
+    var gender by remember(savedGender) { mutableStateOf(savedGender) }
     var backupAction by remember { mutableStateOf("export") }
     var backupPassword by remember { mutableStateOf("") }
     var backupSource by remember { mutableStateOf<Uri?>(null) }
@@ -1884,7 +1886,7 @@ fun SettingsTab(
             }
         }
 
-        SettingsCard("Your nickname") {
+        SettingsCard("My profile") {
             OutlinedTextField(
                 value = nickname,
                 onValueChange = { nickname = it.take(24) },
@@ -1898,6 +1900,31 @@ fun SettingsTab(
                 enabled = !busy && nickname.trim().isNotBlank() && nickname.trim() != savedNickname,
                 modifier = Modifier.fillMaxWidth()
             ) { Text("Save nickname") }
+
+            HorizontalDivider(color = cs.outlineVariant)
+            Text("Gender", color = cs.onSurfaceVariant)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp)
+            ) {
+                listOf(
+                    "male" to "Male",
+                    "female" to "Female",
+                    "unspecified" to "Not set"
+                ).forEach { (value, label) ->
+                    FilterChip(
+                        selected = gender == value,
+                        onClick = { gender = value },
+                        modifier = Modifier.weight(1f),
+                        label = { Text(label, maxLines = 1) }
+                    )
+                }
+            }
+            Button(
+                onClick = { vm.setMyGender(gender) },
+                enabled = !busy && gender != savedGender,
+                modifier = Modifier.fillMaxWidth()
+            ) { Text("Save gender") }
         }
 
         SettingsCard("Our shared space") {

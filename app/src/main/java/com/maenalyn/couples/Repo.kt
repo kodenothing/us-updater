@@ -29,7 +29,8 @@ sealed interface CoupleState {
         val coupleName: String = "Us 💜",
         val memberNames: Map<String, String> = emptyMap(),
         val memberIds: List<String> = emptyList(),
-        val deleteApprovals: Map<String, Boolean> = emptyMap()
+        val deleteApprovals: Map<String, Boolean> = emptyMap(),
+        val memberGenders: Map<String, String> = emptyMap()
     ) : CoupleState
 }
 
@@ -364,6 +365,15 @@ object Repo {
                         ?.entries
                         ?.mapNotNull { (key, value) -> if (key is String && value is Boolean) key to value else null }
                         ?.toMap()
+                        .orEmpty(),
+                    (s.get("memberGenders") as? Map<*, *>)
+                        ?.entries
+                        ?.mapNotNull { (key, value) ->
+                            if (key is String && value is String && value in setOf("male", "female", "unspecified")) {
+                                key to value
+                            } else null
+                        }
+                        ?.toMap()
                         .orEmpty()
                 ))
             } else if (!s.metadata.isFromCache) {
@@ -439,4 +449,9 @@ object Repo {
 
     fun setMemberNickname(code: String, uid: String, nickname: String) =
         couple(code).update("memberNames.$uid", nickname.trim())
+
+    fun setMemberGender(code: String, uid: String, gender: String): com.google.android.gms.tasks.Task<Void> {
+        require(gender in setOf("male", "female", "unspecified")) { "Choose a valid gender setting." }
+        return couple(code).update("memberGenders.$uid", gender)
+    }
 }
