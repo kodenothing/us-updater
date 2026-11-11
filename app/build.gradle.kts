@@ -31,8 +31,8 @@ android {
         applicationId = "com.maenalyn.couples"
         minSdk = 26
         targetSdk = 34
-        versionCode = 24
-        versionName = "2.6.0"
+        versionCode = 25
+        versionName = "2.7.0"
         buildConfigField("String", "SUPABASE_URL", buildConfigString(supabaseUrl))
         buildConfigField("String", "SUPABASE_PUBLISHABLE_KEY", buildConfigString(supabasePublishableKey))
     }

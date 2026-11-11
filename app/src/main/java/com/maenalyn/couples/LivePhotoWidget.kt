@@ -11,6 +11,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Matrix
 import android.net.Uri
 import android.os.Bundle
+import android.util.Base64
 import android.widget.RemoteViews
 import androidx.exifinterface.media.ExifInterface
 import androidx.work.Constraints
@@ -23,6 +24,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.WorkerParameters
 import androidx.work.workDataOf
+import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.firestore.Blob
 import com.google.firebase.firestore.DocumentSnapshot
 import com.google.firebase.firestore.Query
@@ -70,11 +72,25 @@ data class LivePhotoWidgetState(
 )
 
 private object LivePhotoWidgetFiles {
+    const val MY_UID_PREFERENCE = "livePhotoWidgetMyUid"
+    const val PARTNER_UID_PREFERENCE = "livePhotoWidgetPartnerUid"
+    const val PARTNER_GENDER_PREFERENCE = "livePhotoWidgetPartnerGender"
+
     fun root(context: Context) = File(context.filesDir, "live_photo_widget")
     fun cache(context: Context) = File(root(context), "current.jpg")
     fun preview(context: Context) = File(root(context), "preview.jpg")
     fun uploads(context: Context) = File(root(context), "uploads")
     fun preferences(context: Context) = context.getSharedPreferences("us", Context.MODE_PRIVATE)
+
+    fun memberCache(context: Context, ownerUid: String): File {
+        val token = Base64.encodeToString(
+            ownerUid.toByteArray(Charsets.UTF_8),
+            Base64.URL_SAFE or Base64.NO_PADDING or Base64.NO_WRAP
+        )
+        return File(File(root(context), "members"), "$token.jpg")
+    }
+
+    fun memberCachedIdPreference(ownerUid: String) = "livePhotoWidgetMemberCachedId_$ownerUid"
 }
 
 object LivePhotoWidgetRepo {
@@ -82,6 +98,8 @@ object LivePhotoWidgetRepo {
 
     private fun couple(code: String) = db.collection("couples").document(code)
     private fun state(code: String) = couple(code).collection("livePhotoWidget").document(LIVE_WIDGET_STATE_DOCUMENT)
+    private fun memberState(code: String, ownerUid: String) =
+        couple(code).collection("livePhotoWidgetMembers").document(ownerUid)
     private fun photos(code: String) = couple(code).collection("livePhotoWidgetPhotos")
 
     fun observeCurrent(code: String): Flow<LivePhotoWidgetState> = callbackFlow {
@@ -233,7 +251,11 @@ object LivePhotoWidgetRepo {
     ): String? {
         val photoRef = photos(code).document(id)
         val stateRef = state(code)
+        val memberStateRef = memberState(code, uid)
         return db.runTransaction { transaction ->
+            // All transaction reads happen before writes. The couple-wide pointer
+            // preserves the legacy shared widget while the owner pointer drives
+            // the new independent My Instant / Partner Instant widgets.
             val currentSnapshot = transaction.get(stateRef)
             val photoSnapshot = transaction.get(photoRef)
             if (!photoSnapshot.exists() || photoSnapshot.getString("createdBy") != uid) {
@@ -248,6 +270,7 @@ object LivePhotoWidgetRepo {
             }
 
             val previousId = currentSnapshot.getString("activePhotoId").orEmpty()
+            val now = System.currentTimeMillis()
             transaction.update(
                 photoRef,
                 mapOf(
@@ -262,13 +285,26 @@ object LivePhotoWidgetRepo {
                 mapOf(
                     "activePhotoId" to id,
                     "updatedBy" to uid,
-                    "updatedAt" to System.currentTimeMillis()
+                    "updatedAt" to now
+                )
+            )
+            transaction.set(
+                memberStateRef,
+                mapOf(
+                    "activePhotoId" to id,
+                    "updatedBy" to uid,
+                    "updatedAt" to now
                 )
             )
             previousId.takeIf { it.isNotBlank() && it != id }
         }.await()
     }
 
+    /**
+     * Clears only the legacy couple-wide pointer. The captured image remains in
+     * the owner's gallery and may still be displayed by that member's independent
+     * widget, so it must not be deleted here.
+     */
     suspend fun removeCurrentPhoto(context: Context, code: String, uid: String): String? {
         val stateRef = state(code)
         val previousId = db.runTransaction { transaction ->
@@ -284,10 +320,7 @@ object LivePhotoWidgetRepo {
             )
             oldId.takeIf { it.isNotBlank() }
         }.await()
-        if (previousId != null) {
-            // Enqueue before attempting direct cleanup so process death cannot orphan the old Blob.
-            LivePhotoWidgetDeleteWorker.enqueue(context, code, previousId)
-        }
+        LivePhotoWidgetSyncWorker.enqueue(context, code)
         return previousId
     }
 
@@ -620,12 +653,105 @@ class LivePhotoWidgetDeleteWorker(context: Context, params: WorkerParameters) : 
     }
 }
 
+private suspend fun syncMemberWidgetCaches(context: Context, code: String) {
+    val prefs = LivePhotoWidgetFiles.preferences(context)
+    val db = FirebaseFirestore.getInstance()
+    val couple = db.collection("couples").document(code).get(Source.SERVER).await()
+    val members = (couple.get("members") as? List<*>)?.filterIsInstance<String>().orEmpty()
+    val currentUid = FirebaseAuth.getInstance().currentUser?.uid
+
+    // WorkManager can start the process before Firebase Auth finishes restoring
+    // its persisted session. Keep the last good owner mapping/cache in that case.
+    if (currentUid.isNullOrBlank()) return
+
+    if (!couple.exists() || currentUid !in members) {
+        prefs.edit()
+            .remove(LivePhotoWidgetFiles.MY_UID_PREFERENCE)
+            .remove(LivePhotoWidgetFiles.PARTNER_UID_PREFERENCE)
+            .remove(LivePhotoWidgetFiles.PARTNER_GENDER_PREFERENCE)
+            .apply()
+        MyInstantWidgetProvider.updateAll(context, scheduleSync = false)
+        PartnerInstantWidgetProvider.updateAll(context, scheduleSync = false)
+        return
+    }
+
+    val partnerUid = members.firstOrNull { it != currentUid }
+    val genders = (couple.get("memberGenders") as? Map<*, *>).orEmpty()
+    val partnerGender = (partnerUid?.let { genders[it] as? String })
+        ?.takeIf { it in setOf("male", "female", "unspecified") }
+        ?: "unspecified"
+
+    prefs.edit()
+        .putString(LivePhotoWidgetFiles.MY_UID_PREFERENCE, currentUid)
+        .putString(LivePhotoWidgetFiles.PARTNER_UID_PREFERENCE, partnerUid)
+        .putString(LivePhotoWidgetFiles.PARTNER_GENDER_PREFERENCE, partnerGender)
+        .apply()
+
+    val owners = listOfNotNull(currentUid, partnerUid)
+    for (ownerUid in owners) {
+        if (prefs.getString("code", null) != code) return
+
+        val pointer = db.collection("couples").document(code)
+            .collection("livePhotoWidgetMembers").document(ownerUid)
+            .get(Source.SERVER).await()
+        val photoId = pointer.getString("activePhotoId").orEmpty()
+        val cache = LivePhotoWidgetFiles.memberCache(context, ownerUid)
+        val cacheIdPreference = LivePhotoWidgetFiles.memberCachedIdPreference(ownerUid)
+
+        if (photoId.isBlank()) {
+            withContext(Dispatchers.IO) { cache.delete() }
+            prefs.edit().remove(cacheIdPreference).apply()
+            continue
+        }
+        if (cache.exists() && prefs.getString(cacheIdPreference, null) == photoId) {
+            continue
+        }
+
+        val photo = db.collection("couples").document(code)
+            .collection("livePhotoWidgetPhotos").document(photoId)
+            .get(Source.SERVER).await()
+        if (!photo.exists() ||
+            photo.getString("status") != "ready" ||
+            photo.getString("createdBy") != ownerUid
+        ) {
+            throw IllegalStateException("An Instant widget photo is not ready to display.")
+        }
+
+        val content = db.collection("couples").document(code)
+            .collection("livePhotoWidgetPhotos").document(photoId)
+            .collection("content")
+        val image = content.document("image").get(Source.SERVER).await()
+        val bytes = image.getBlob("image")?.toBytes()
+            ?: content.document("thumbnail").get(Source.SERVER).await().getBlob("image")?.toBytes()
+            ?: throw IllegalStateException("An Instant widget photo is missing its image.")
+        if (bytes.isEmpty() || bytes.size > LIVE_WIDGET_MAX_IMAGE_BYTES) {
+            throw IllegalStateException("An Instant widget photo has an invalid image size.")
+        }
+
+        if (prefs.getString("code", null) != code) return
+        withContext(Dispatchers.IO) {
+            cache.parentFile?.mkdirs()
+            val temporary = File(cache.parentFile, cache.nameWithoutExtension + ".tmp")
+            temporary.writeBytes(bytes)
+            if (!temporary.renameTo(cache)) {
+                cache.writeBytes(bytes)
+                temporary.delete()
+            }
+        }
+        prefs.edit().putString(cacheIdPreference, photoId).apply()
+    }
+
+    MyInstantWidgetProvider.updateAll(context, scheduleSync = false)
+    PartnerInstantWidgetProvider.updateAll(context, scheduleSync = false)
+}
+
 class LivePhotoWidgetSyncWorker(context: Context, params: WorkerParameters) : CoroutineWorker(context, params) {
     override suspend fun doWork(): Result {
         val code = inputData.getString("code") ?: return Result.failure()
         val prefs = LivePhotoWidgetFiles.preferences(applicationContext)
         if (prefs.getString("code", null) != code) return Result.success()
         return try {
+            syncMemberWidgetCaches(applicationContext, code)
             val state = FirebaseFirestore.getInstance()
                 .collection("couples").document(code)
                 .collection("livePhotoWidget").document(LIVE_WIDGET_STATE_DOCUMENT)
@@ -743,10 +869,7 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
     }
 
     override fun onDisabled(context: Context) {
-        val code = context.getSharedPreferences("us", Context.MODE_PRIVATE).getString("code", null)
-        if (!code.isNullOrBlank()) {
-            WorkManager.getInstance(context).cancelUniqueWork("live-photo-widget-periodic-$code")
-        }
+        MemberInstantWidgetRenderer.cancelPeriodicIfUnused(context)
         super.onDisabled(context)
     }
 
@@ -754,11 +877,21 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
         fun clearLocalCache(context: Context) {
             WorkManager.getInstance(context).cancelAllWorkByTag("live-photo-widget")
             LivePhotoWidgetFiles.root(context).deleteRecursively()
-            LivePhotoWidgetFiles.preferences(context).edit()
+            val prefs = LivePhotoWidgetFiles.preferences(context)
+            val myUid = prefs.getString(LivePhotoWidgetFiles.MY_UID_PREFERENCE, null)
+            val partnerUid = prefs.getString(LivePhotoWidgetFiles.PARTNER_UID_PREFERENCE, null)
+            val editor = prefs.edit()
                 .remove("livePhotoWidgetCachedId")
                 .remove("livePhotoWidgetPreviewCachedId")
-                .apply()
+                .remove(LivePhotoWidgetFiles.MY_UID_PREFERENCE)
+                .remove(LivePhotoWidgetFiles.PARTNER_UID_PREFERENCE)
+                .remove(LivePhotoWidgetFiles.PARTNER_GENDER_PREFERENCE)
+            myUid?.let { editor.remove(LivePhotoWidgetFiles.memberCachedIdPreference(it)) }
+            partnerUid?.let { editor.remove(LivePhotoWidgetFiles.memberCachedIdPreference(it)) }
+            editor.apply()
             updateAll(context, scheduleSync = false)
+            MyInstantWidgetProvider.updateAll(context, scheduleSync = false)
+            PartnerInstantWidgetProvider.updateAll(context, scheduleSync = false)
         }
 
         fun updateWidget(context: Context, appWidgetId: Int) {
@@ -772,7 +905,7 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             val component = ComponentName(context, LivePhotoWidgetProvider::class.java)
             val ids = manager.getAppWidgetIds(component)
             ids.forEach { updateOne(context, manager, it) }
-            if (scheduleSync && ids.isNotEmpty()) {
+            if (scheduleSync) {
                 val code = context.getSharedPreferences("us", Context.MODE_PRIVATE).getString("code", null)
                 if (!code.isNullOrBlank()) {
                     ensureBackgroundSyncScheduled(context, code)
@@ -792,8 +925,7 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             if (normalizedCode.isEmpty()) return
 
             val manager = AppWidgetManager.getInstance(context)
-            val component = ComponentName(context, LivePhotoWidgetProvider::class.java)
-            if (manager.getAppWidgetIds(component).isEmpty()) return
+            if (!MemberInstantWidgetRenderer.hasAnyWidgets(context, manager)) return
 
             // Refresh once immediately, then let WorkManager maintain the periodic refresh.
             LivePhotoWidgetSyncWorker.enqueue(context, normalizedCode)
@@ -819,6 +951,8 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             val style = OurInstantWidgetDesigns.load(context, id)
             val layout = OurInstantWidgetDesigns.layoutFor(style)
             val views = RemoteViews(context.packageName, layout)
+            views.setTextViewText(R.id.live_photo_owner_label, "Our Instant")
+            views.setViewVisibility(R.id.live_photo_owner_label, android.view.View.VISIBLE)
             val cache = LivePhotoWidgetFiles.cache(context)
             val cachedId = LivePhotoWidgetFiles.preferences(context)
                 .getString("livePhotoWidgetCachedId", null)
@@ -844,6 +978,190 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             )
             views.setOnClickPendingIntent(R.id.widget_live_photo_root, pending)
             manager.updateAppWidget(id, views)
+        }
+    }
+}
+
+private object MemberInstantWidgetRenderer {
+    private const val MY_UID_KEY = LivePhotoWidgetFiles.MY_UID_PREFERENCE
+    private const val PARTNER_UID_KEY = LivePhotoWidgetFiles.PARTNER_UID_PREFERENCE
+
+    fun hasAnyWidgets(context: Context, manager: AppWidgetManager): Boolean {
+        val providers = listOf(
+            LivePhotoWidgetProvider::class.java,
+            MyInstantWidgetProvider::class.java,
+            PartnerInstantWidgetProvider::class.java
+        )
+        return providers.any { provider ->
+            manager.getAppWidgetIds(ComponentName(context, provider)).isNotEmpty()
+        }
+    }
+
+    fun cancelPeriodicIfUnused(context: Context) {
+        val manager = AppWidgetManager.getInstance(context)
+        if (hasAnyWidgets(context, manager)) return
+        val code = LivePhotoWidgetFiles.preferences(context).getString("code", null)
+        if (!code.isNullOrBlank()) {
+            WorkManager.getInstance(context).cancelUniqueWork("live-photo-widget-periodic-$code")
+        }
+    }
+
+    fun updateWidget(context: Context, appWidgetId: Int, partner: Boolean) {
+        if (appWidgetId == AppWidgetManager.INVALID_APPWIDGET_ID) return
+        updateOne(context, AppWidgetManager.getInstance(context), appWidgetId, partner)
+        val code = LivePhotoWidgetFiles.preferences(context).getString("code", null)
+        if (!code.isNullOrBlank()) {
+            LivePhotoWidgetProvider.ensureBackgroundSyncScheduled(context, code)
+        }
+    }
+
+    fun updateAll(
+        context: Context,
+        manager: AppWidgetManager,
+        ids: IntArray,
+        partner: Boolean,
+        scheduleSync: Boolean
+    ) {
+        ids.forEach { updateOne(context, manager, it, partner) }
+        if (scheduleSync && ids.isNotEmpty()) {
+            val code = LivePhotoWidgetFiles.preferences(context).getString("code", null)
+            if (!code.isNullOrBlank()) {
+                LivePhotoWidgetProvider.ensureBackgroundSyncScheduled(context, code)
+            }
+        }
+    }
+
+    private fun updateOne(
+        context: Context,
+        manager: AppWidgetManager,
+        id: Int,
+        partner: Boolean
+    ) {
+        val prefs = LivePhotoWidgetFiles.preferences(context)
+        val ownerUid = if (partner) {
+            prefs.getString(PARTNER_UID_KEY, null)
+        } else {
+            prefs.getString(MY_UID_KEY, null)
+                ?: FirebaseAuth.getInstance().currentUser?.uid
+        }
+        val cache = ownerUid?.let { LivePhotoWidgetFiles.memberCache(context, it) }
+        val cachedId = ownerUid?.let {
+            prefs.getString(LivePhotoWidgetFiles.memberCachedIdPreference(it), null)
+        }
+        val style = OurInstantWidgetDesigns.load(context, id)
+        val views = RemoteViews(context.packageName, OurInstantWidgetDesigns.layoutFor(style))
+        val ownerLabel = if (!partner) {
+            "My Instant"
+        } else {
+            when (prefs.getString(LivePhotoWidgetFiles.PARTNER_GENDER_PREFERENCE, "unspecified")) {
+                "female" -> "Her Instant"
+                "male" -> "His Instant"
+                else -> "Partner Instant"
+            }
+        }
+        views.setTextViewText(R.id.live_photo_owner_label, ownerLabel)
+        views.setViewVisibility(R.id.live_photo_owner_label, android.view.View.VISIBLE)
+        val bitmap = if (cache != null && cache.exists() && !cachedId.isNullOrBlank()) {
+            decodeWidgetBitmap(cache)
+        } else null
+
+        if (bitmap != null) {
+            views.setImageViewBitmap(R.id.live_photo_image, bitmap)
+            views.setViewVisibility(R.id.live_photo_image, android.view.View.VISIBLE)
+            views.setViewVisibility(R.id.live_photo_placeholder, android.view.View.GONE)
+        } else {
+            views.setTextViewText(
+                R.id.live_photo_placeholder,
+                "$ownerLabel will appear here 💜\nOpen Us → Our Instant to capture a photo"
+            )
+            views.setViewVisibility(R.id.live_photo_image, android.view.View.GONE)
+            views.setViewVisibility(R.id.live_photo_placeholder, android.view.View.VISIBLE)
+        }
+
+        val intent = Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pending = PendingIntent.getActivity(
+            context,
+            id,
+            intent,
+            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        )
+        views.setOnClickPendingIntent(R.id.widget_live_photo_root, pending)
+        manager.updateAppWidget(id, views)
+    }
+}
+
+class MyInstantWidgetProvider : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        MemberInstantWidgetRenderer.updateAll(context, manager, ids, partner = false, scheduleSync = true)
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        OurInstantWidgetDesigns.remove(context, appWidgetIds)
+        super.onDeleted(context, appWidgetIds)
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle
+    ) {
+        super.onAppWidgetOptionsChanged(context, manager, appWidgetId, newOptions)
+        MemberInstantWidgetRenderer.updateWidget(context, appWidgetId, partner = false)
+    }
+
+    override fun onDisabled(context: Context) {
+        MemberInstantWidgetRenderer.cancelPeriodicIfUnused(context)
+        super.onDisabled(context)
+    }
+
+    companion object {
+        fun updateWidget(context: Context, appWidgetId: Int) =
+            MemberInstantWidgetRenderer.updateWidget(context, appWidgetId, partner = false)
+
+        fun updateAll(context: Context, scheduleSync: Boolean = true) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, MyInstantWidgetProvider::class.java))
+            MemberInstantWidgetRenderer.updateAll(context, manager, ids, partner = false, scheduleSync = scheduleSync)
+        }
+    }
+}
+
+class PartnerInstantWidgetProvider : AppWidgetProvider() {
+    override fun onUpdate(context: Context, manager: AppWidgetManager, ids: IntArray) {
+        MemberInstantWidgetRenderer.updateAll(context, manager, ids, partner = true, scheduleSync = true)
+    }
+
+    override fun onDeleted(context: Context, appWidgetIds: IntArray) {
+        OurInstantWidgetDesigns.remove(context, appWidgetIds)
+        super.onDeleted(context, appWidgetIds)
+    }
+
+    override fun onAppWidgetOptionsChanged(
+        context: Context,
+        manager: AppWidgetManager,
+        appWidgetId: Int,
+        newOptions: Bundle
+    ) {
+        super.onAppWidgetOptionsChanged(context, manager, appWidgetId, newOptions)
+        MemberInstantWidgetRenderer.updateWidget(context, appWidgetId, partner = true)
+    }
+
+    override fun onDisabled(context: Context) {
+        MemberInstantWidgetRenderer.cancelPeriodicIfUnused(context)
+        super.onDisabled(context)
+    }
+
+    companion object {
+        fun updateWidget(context: Context, appWidgetId: Int) =
+            MemberInstantWidgetRenderer.updateWidget(context, appWidgetId, partner = true)
+
+        fun updateAll(context: Context, scheduleSync: Boolean = true) {
+            val manager = AppWidgetManager.getInstance(context)
+            val ids = manager.getAppWidgetIds(ComponentName(context, PartnerInstantWidgetProvider::class.java))
+            MemberInstantWidgetRenderer.updateAll(context, manager, ids, partner = true, scheduleSync = scheduleSync)
         }
     }
 }

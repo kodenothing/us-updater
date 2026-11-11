@@ -217,7 +217,38 @@ service cloud.firestore {
         allow delete: if isCoupleMember(cid);
       }
 
-      // Live Photo Widget keeps one shared active pointer and independent Firestore Blob photos.
+      // A member pointer protects only that member's current personal-widget photo.
+      function activeMemberWidgetReferencesPhoto(ownerUid, photoId) {
+        let pointerPath = /databases/$(db)/documents/couples/$(cid)/livePhotoWidgetMembers/$(ownerUid);
+        return exists(pointerPath) && get(pointerPath).data.activePhotoId == photoId;
+      }
+
+      match /livePhotoWidgetMembers/{ownerUid} {
+        allow get: if isCoupleMember(cid);
+        allow list: if false;
+
+        allow create, update: if isCoupleMember(cid)
+          && request.auth.uid == ownerUid
+          && request.resource.data.keys().hasAll(['activePhotoId', 'updatedBy', 'updatedAt'])
+          && request.resource.data.keys().hasOnly(['activePhotoId', 'updatedBy', 'updatedAt'])
+          && request.resource.data.activePhotoId is string
+          && request.resource.data.activePhotoId.size() <= 128
+          && request.resource.data.updatedBy == request.auth.uid
+          && request.resource.data.updatedAt is int
+          && (
+            request.resource.data.activePhotoId == ''
+            || (
+              existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(request.resource.data.activePhotoId))
+              && getAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(request.resource.data.activePhotoId)).data.status == 'ready'
+              && getAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(request.resource.data.activePhotoId)).data.createdBy == request.auth.uid
+            )
+          );
+
+        allow delete: if isCoupleMember(cid)
+          && allMembersApprovedForDeletion(get(/databases/$(db)/documents/couples/$(cid)).data);
+      }
+
+      // The legacy shared pointer remains for already-pinned Our Instant widgets.
       match /livePhotoWidget/{stateId} {
         allow read: if isCoupleMember(cid);
 
@@ -271,10 +302,12 @@ service cloud.firestore {
           && existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)/content/image)
           && existsAfter(/databases/$(db)/documents/couples/$(cid)/livePhotoWidgetPhotos/$(photoId)/content/thumbnail);
 
-        allow delete: if isCoupleMember(cid) && (
-          !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
-          || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
-        );
+        allow delete: if isCoupleMember(cid)
+          && (
+            !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
+            || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
+          )
+          && !activeMemberWidgetReferencesPhoto(resource.data.createdBy, photoId);
 
         match /content/{contentId} {
           allow get: if contentId in ['image', 'thumbnail'] && isCoupleMember(cid);
@@ -295,10 +328,12 @@ service cloud.firestore {
             && request.resource.data.createdAt is int;
 
           allow update: if false;
-          allow delete: if isCoupleMember(cid) && (
-            !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
-            || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
-          );
+          allow delete: if isCoupleMember(cid)
+            && (
+              !exists(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current)
+              || get(/databases/$(db)/documents/couples/$(cid)/livePhotoWidget/current).data.activePhotoId != photoId
+            )
+            && !activeMemberWidgetReferencesPhoto(resource.data.createdBy, photoId);
         }
       }
 

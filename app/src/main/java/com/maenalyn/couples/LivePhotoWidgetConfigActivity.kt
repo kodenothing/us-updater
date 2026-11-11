@@ -63,6 +63,22 @@ class LivePhotoWidgetConfigActivity : ComponentActivity() {
             return
         }
 
+        val configuredProvider = AppWidgetManager.getInstance(this)
+            .getAppWidgetInfo(appWidgetId)?.provider?.className
+        val widgetTitle = when (configuredProvider) {
+            MyInstantWidgetProvider::class.java.name -> "Customize My Instant"
+            PartnerInstantWidgetProvider::class.java.name -> "Customize Partner Instant"
+            else -> "Customize Our Instant"
+        }
+        val widgetDescription = when (configuredProvider) {
+            MyInstantWidgetProvider::class.java.name ->
+                "This widget shows only your own latest Our Instant photo."
+            PartnerInstantWidgetProvider::class.java.name ->
+                "This widget shows only your partner's latest Our Instant photo."
+            else ->
+                "Choose the frame for this home-screen photo widget. Your partner's widget design won't change."
+        }
+
         // Keep cancellation as the safe default unless the user confirms a design.
         setResult(
             Activity.RESULT_CANCELED,
@@ -99,12 +115,12 @@ class LivePhotoWidgetConfigActivity : ComponentActivity() {
                         verticalArrangement = Arrangement.spacedBy(14.dp)
                     ) {
                         Text(
-                            "Customize Our Instant",
+                            widgetTitle,
                             style = MaterialTheme.typography.headlineSmall,
                             fontWeight = FontWeight.Bold
                         )
                         Text(
-                            "Choose the frame for this home-screen photo widget. Your partner's widget design won't change.",
+                            widgetDescription,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                             style = MaterialTheme.typography.bodyMedium
                         )
@@ -121,7 +137,14 @@ class LivePhotoWidgetConfigActivity : ComponentActivity() {
                         Button(
                             onClick = {
                                 OurInstantWidgetDesigns.save(this@LivePhotoWidgetConfigActivity, appWidgetId, selected)
-                                LivePhotoWidgetProvider.updateWidget(this@LivePhotoWidgetConfigActivity, appWidgetId)
+                                when (configuredProvider) {
+                                    MyInstantWidgetProvider::class.java.name ->
+                                        MyInstantWidgetProvider.updateWidget(this@LivePhotoWidgetConfigActivity, appWidgetId)
+                                    PartnerInstantWidgetProvider::class.java.name ->
+                                        PartnerInstantWidgetProvider.updateWidget(this@LivePhotoWidgetConfigActivity, appWidgetId)
+                                    else ->
+                                        LivePhotoWidgetProvider.updateWidget(this@LivePhotoWidgetConfigActivity, appWidgetId)
+                                }
                                 val result = Intent().putExtra(
                                     AppWidgetManager.EXTRA_APPWIDGET_ID,
                                     appWidgetId
