@@ -951,6 +951,8 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             val style = OurInstantWidgetDesigns.load(context, id)
             val layout = OurInstantWidgetDesigns.layoutFor(style)
             val views = RemoteViews(context.packageName, layout)
+            views.setTextViewText(R.id.live_photo_owner_label, "Our Instant")
+            views.setViewVisibility(R.id.live_photo_owner_label, android.view.View.VISIBLE)
             val cache = LivePhotoWidgetFiles.cache(context)
             val cachedId = LivePhotoWidgetFiles.preferences(context)
                 .getString("livePhotoWidgetCachedId", null)
@@ -1048,6 +1050,17 @@ private object MemberInstantWidgetRenderer {
         }
         val style = OurInstantWidgetDesigns.load(context, id)
         val views = RemoteViews(context.packageName, OurInstantWidgetDesigns.layoutFor(style))
+        val ownerLabel = if (!partner) {
+            "My Instant"
+        } else {
+            when (prefs.getString(LivePhotoWidgetFiles.PARTNER_GENDER_PREFERENCE, "unspecified")) {
+                "female" -> "Her Instant"
+                "male" -> "His Instant"
+                else -> "Partner Instant"
+            }
+        }
+        views.setTextViewText(R.id.live_photo_owner_label, ownerLabel)
+        views.setViewVisibility(R.id.live_photo_owner_label, android.view.View.VISIBLE)
         val bitmap = if (cache != null && cache.exists() && !cachedId.isNullOrBlank()) {
             decodeWidgetBitmap(cache)
         } else null
@@ -1057,18 +1070,9 @@ private object MemberInstantWidgetRenderer {
             views.setViewVisibility(R.id.live_photo_image, android.view.View.VISIBLE)
             views.setViewVisibility(R.id.live_photo_placeholder, android.view.View.GONE)
         } else {
-            val title = if (!partner) {
-                "My Instant"
-            } else {
-                when (prefs.getString(LivePhotoWidgetFiles.PARTNER_GENDER_PREFERENCE, "unspecified")) {
-                    "female" -> "Her Instant"
-                    "male" -> "His Instant"
-                    else -> "Partner Instant"
-                }
-            }
             views.setTextViewText(
                 R.id.live_photo_placeholder,
-                "$title will appear here 💜\nOpen Us → Our Instant to capture a photo"
+                "$ownerLabel will appear here 💜\nOpen Us → Our Instant to capture a photo"
             )
             views.setViewVisibility(R.id.live_photo_image, android.view.View.GONE)
             views.setViewVisibility(R.id.live_photo_placeholder, android.view.View.VISIBLE)
