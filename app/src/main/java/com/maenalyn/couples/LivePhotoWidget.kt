@@ -675,21 +675,44 @@ class LivePhotoWidgetProvider : AppWidgetProvider() {
             if (scheduleSync && ids.isNotEmpty()) {
                 val code = context.getSharedPreferences("us", Context.MODE_PRIVATE).getString("code", null)
                 if (!code.isNullOrBlank()) {
-                    LivePhotoWidgetSyncWorker.enqueue(context, code)
-                    val periodic = PeriodicWorkRequestBuilder<LivePhotoWidgetSyncWorker>(15, TimeUnit.MINUTES)
-                        .setConstraints(
-                            Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
-                        )
-                        .setInputData(workDataOf("code" to code))
-                        .addTag("live-photo-widget")
-                        .build()
-                    WorkManager.getInstance(context).enqueueUniquePeriodicWork(
-                        "live-photo-widget-periodic-$code",
-                        ExistingPeriodicWorkPolicy.UPDATE,
-                        periodic
-                    )
+                    ensureBackgroundSyncScheduled(context, code)
                 }
             }
+        }
+
+        /**
+         * Registers the durable refresh schedule for an already-pinned widget.
+         *
+         * This is intentionally called when a saved pairing is restored, too: a widget
+         * may have been added before pairing existed, so its initial onUpdate could not
+         * register work because there was no couple code yet.
+         */
+        fun ensureBackgroundSyncScheduled(context: Context, code: String) {
+            val normalizedCode = code.trim()
+            if (normalizedCode.isEmpty()) return
+
+            val manager = AppWidgetManager.getInstance(context)
+            val component = ComponentName(context, LivePhotoWidgetProvider::class.java)
+            if (manager.getAppWidgetIds(component).isEmpty()) return
+
+            // Refresh once immediately, then let WorkManager maintain the periodic refresh.
+            LivePhotoWidgetSyncWorker.enqueue(context, normalizedCode)
+
+            val periodic = PeriodicWorkRequestBuilder<LivePhotoWidgetSyncWorker>(15, TimeUnit.MINUTES)
+                .setConstraints(
+                    Constraints.Builder().setRequiredNetworkType(NetworkType.CONNECTED).build()
+                )
+                .setInputData(workDataOf("code" to normalizedCode))
+                .addTag("live-photo-widget")
+                .build()
+
+            // KEEP avoids resetting the periodic timer every time the app starts or a
+            // widget is redrawn. WorkManager persists and reschedules this work itself.
+            WorkManager.getInstance(context).enqueueUniquePeriodicWork(
+                "live-photo-widget-periodic-$normalizedCode",
+                ExistingPeriodicWorkPolicy.KEEP,
+                periodic
+            )
         }
 
         private fun updateOne(context: Context, manager: AppWidgetManager, id: Int) {
