@@ -14,18 +14,17 @@ The supplied toolchain is preserved:
 - Firebase BoM `33.4.0`
 - Gradle distribution `8.7`
 
-The next Android feature release is `2.6.0` (`versionCode = 24`), prepared from the merged v2.5.1–v2.6.0 feature work.
+The latest published Android release is `2.6.0` (`versionCode = 24`). The next release candidate is UsApp `2.7.0` (`versionCode = 25`).
 
-### Included in the upcoming 2.6.0 release
+### Included in UsApp 2.7.0
 
-- Us Chat message controls: remove a message for yourself or for both partners, with deleted-message tombstones.
-- Shared conversation reset from Settings, with both phones switching to a fresh conversation.
-- Branded offline/error feedback and chat reliability improvements.
-- Correct front-camera image orientation and map/bottom-navigation layout polish.
-- Minimal hamburger navigation with Our Instant, Our Map, and Settings.
-- Four per-widget Our Instant photo styles: Soft corners, Fine outline, Polaroid, and Minimal.
+- More durable background synchronization for the Our Instant home-screen widget.
+- Per-member gender settings in **Settings → My Profile**.
+- Persistent Our Instant photo history.
+- An Instagram-style Our Instant gallery with personal/partner tabs, date grouping, and a swipeable photo viewer.
+- Independent **My Instant** and **Partner Instant** widgets alongside the existing shared **Our Instant** widget.
 
-The release candidate still needs a release-signed build and final regression checks; see `RELEASE_NOTES_2.6.0.md` and `PRODUCTION_CHECKLIST.md`.
+See `RELEASE_NOTES_2.7.0.md` for details and Android background-work limitations. The previous release notes remain in `RELEASE_NOTES_2.6.0.md`.
 
 ## Visual direction
 
