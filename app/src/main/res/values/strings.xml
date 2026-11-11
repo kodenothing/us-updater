@@ -6,5 +6,5 @@
     <string name="my_instant_widget_name">My Instant</string>
     <string name="my_instant_widget_description">Your latest Our Instant photo.</string>
     <string name="partner_instant_widget_name">Partner Instant</string>
-    <string name="partner_instant_widget_description">Your partner's latest Our Instant photo.</string>
+    <string name="partner_instant_widget_description">Your partner\'s latest Our Instant photo.</string>
 </resources>
